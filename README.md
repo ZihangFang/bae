@@ -41,7 +41,7 @@
 
 5. Install the package in development mode:
    ```bash
-   pip install -e .
+   python -m pip install --no-build-isolation -v -e .  # following https://github.com/pytorch/pytorch
    ```
 
 ### Build with CUDSS Tarball (unstable)
