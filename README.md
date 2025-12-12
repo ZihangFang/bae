@@ -94,6 +94,22 @@ for idx in range(20):
     print(f'Iteration {idx}, loss: {loss.item()}')
 ```
 
+### Integration with VGGT
+
+`bae` is used as an optional Bundle Adjustment backend in [our VGGT fork](https://github.com/zitongzhan/vggt) (Visual Geometry Grounded Transformer) to refine the camera poses, intrinsics, and 3D points predicted by VGGT before exporting a COLMAP reconstruction.
+
+After installing `bae`, you can run VGGT's COLMAP export with BA enabled and `bae` selected as the solver:
+
+```bash
+git clone https://github.com/zitongzhan/vggt.git
+cd vggt
+pip install -r requirements.txt
+
+python demo_colmap.py --scene_dir /path/to/scene --use_ba --implementation bae  # optional: --shared_camera
+```
+
+This command invokes `prepare_bae(...)` inside `vggt/demo_colmap.py`, which wraps VGGT tracks and predictions into `bae.optim.LM` and updates `extrinsic`, `intrinsic`, and `points_3d` in place before writing `scene_dir/sparse/` in COLMAP format.
+
 ## Dataset Support
 
 The library supports common optimization datasets and tasks:

@@ -8,3 +8,6 @@ datapipes/bal_data/*
 .idea/*
 dump_Ab/*
 tmp_debug/*
+task.md
+*.pickle
+*.png
