@@ -4,6 +4,10 @@
 
 `bae` is a PyTorch-based library supporting 2nd-order optimization techniques. The library provides efficient implementations for sparse optimization problems in robotics, particularly Bundle Adjustment (BA) and Pose Graph Optimization (PGO).
 
+## News
+
+- 2025-12-12: Added a VGGT integration example.
+
 ## Features
 
 - **Sparse Block Matrix Operations**: Optimized implementations of sparse matrix operations for large-scale optimization
@@ -101,10 +105,6 @@ for idx in range(20):
 After installing `bae`, you can run VGGT's COLMAP export with BA enabled and `bae` selected as the solver:
 
 ```bash
-git clone https://github.com/zitongzhan/vggt.git
-cd vggt
-pip install -r requirements.txt
-
 python demo_colmap.py --scene_dir /path/to/scene --use_ba --implementation bae  # optional: --shared_camera
 ```
 
