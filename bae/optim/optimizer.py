@@ -7,12 +7,14 @@ from ..autograd.graph import jacobian
 from ..autograd.function import TrackingTensor
 from ..sparse.py_ops import diagonal_op_
 from ..sparse.spgemm import CuSparse
+from ..utils.linear_operator import NormalMatVec
 
 
 
 
 class LM(ppLM):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, matrix_free_normal: bool = False, **kwargs):
+        self.matrix_free_normal = matrix_free_normal
         super(LM, self).__init__(*args, **kwargs)
         self.mm = CuSparse()
 
@@ -22,24 +24,34 @@ class LM(ppLM):
             weight = self.weight if weight is None else weight
             R = list(self.model(input))
             R = R[0]
-            J = jacobian(R, pg['params'])
+            J_list = jacobian(R, pg['params'])
             if isinstance(R, TrackingTensor):
                 R = R.tensor()
-            J = torch.cat([j.to_sparse_coo() for j in J], dim=-1)
+            J = torch.cat([j.to_sparse_coo() for j in J_list], dim=-1)
 
             self.last = self.loss = self.loss if hasattr(self, 'loss') else self.model.loss(input, target)
             J_T = J.mT
             self.reject_count = 0
             J_T = J_T.to_sparse_csr()
             J = J.to_sparse_csr()
-            A = self.mm(J_T, J)
+            rhs = -J_T @ R.view(-1, 1)
 
-            diagonal_op_(A, op=partial(torch.clamp_, min=pg['min'], max=pg['max']))
+            if self.matrix_free_normal:
+                diag = NormalMatVec._compute_diag(J).clamp(min=pg['min'], max=pg['max'])
+                A = NormalMatVec(J, damping=0.0, diag=diag)
+                diag_scale = 1.0
+            else:
+                A = self.mm(J_T, J)
+                diagonal_op_(A, op=partial(torch.clamp_, min=pg['min'], max=pg['max']))
 
             while self.last <= self.loss:
-                diagonal_op_(A, op=partial(torch.mul, other=1+pg['damping']))
+                if self.matrix_free_normal:
+                    diag_scale *= 1.0 + pg['damping']
+                    A.set_damping(diag_scale - 1.0)
+                else:
+                    diagonal_op_(A, op=partial(torch.mul, other=1+pg['damping']))
                 try:
-                    D = self.solver(A, -J_T @ R.view(-1, 1))
+                    D = self.solver(A, rhs)
                     D = D[:, None]
                 except Exception as e:
                     print(e, "\nLinear solver failed. Breaking optimization step...")
