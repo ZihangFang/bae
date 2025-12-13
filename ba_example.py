@@ -1,4 +1,6 @@
 from time import perf_counter
+from pathlib import Path
+from datetime import datetime
 import torch
 import pypose as pp
 
@@ -9,13 +11,13 @@ from bae.sparse.solve import *
 from bae.optim import LM
 from bae.utils.pysolvers import PCG, CuDSS
 
-# TARGET_DATASET = "ladybug"
-# TARGET_PROBLEM = "problem-1723-156502-pre"
+TARGET_DATASET = "ladybug"
+TARGET_PROBLEM = "problem-1723-156502-pre"
 # TARGET_PROBLEM = "problem-49-7776-pre"
 # TARGET_PROBLEM = "problem-1695-155710-pre"  
 # TARGET_PROBLEM = "problem-969-105826-pre"
-TARGET_DATASET = "trafalgar"
-TARGET_PROBLEM = "problem-257-65132-pre"
+# TARGET_DATASET = "trafalgar"
+# TARGET_PROBLEM = "problem-257-65132-pre"
 # TARGET_DATASET = "dubrovnik"
 # TARGET_PROBLEM = "problem-356-226730-pre"
 
@@ -28,6 +30,21 @@ USE_QUATERNIONS = True
 
 file_name = f'{TARGET_DATASET}.{TARGET_PROBLEM}'
 dataset = get_problem(TARGET_PROBLEM, TARGET_DATASET, use_quat=USE_QUATERNIONS)
+memory_snapshot_path = None
+
+if DEVICE.startswith("cuda") and torch.cuda.is_available():
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    snapshot_dir = Path("memory_traces")
+    snapshot_dir.mkdir(exist_ok=True)
+    memory_snapshot_path = snapshot_dir / f"{file_name}_cuda_memory_{timestamp}.pickle"
+    # Record allocator events so we can inspect GPU memory usage after the run.
+    torch.cuda.memory._record_memory_history(
+        enabled="all",
+        context="all",
+        stacks="python",
+        device=torch.device(DEVICE),
+        clear_history=True,
+    )
 
 if OPTIMIZE_INTRINSICS:
     NUM_CAMERA_PARAMS = 10 if USE_QUATERNIONS else 9
@@ -51,7 +68,9 @@ model = Reproj(
 ).to(DEVICE)
 strategy = pp.optim.strategy.TrustRegion(up=2.0, down=0.5**4)
 solver = PCG(tol=1e-4, maxiter=250)  # or CuDSS()
-optimizer = LM(model, strategy=strategy, solver=solver, reject=30)
+optimizer = LM(model, matrix_free_normal=True, strategy=strategy, solver=solver, reject=30)
+
+
 
 print('Loss:', least_square_error(
     model.pose,
@@ -67,6 +86,13 @@ start = perf_counter()
 for idx in range(20):
     loss = optimizer.step(input)
     print('Iteration', idx, 'loss', loss.item(), 'time', perf_counter() - start)
+
+if memory_snapshot_path:
+    torch.cuda.synchronize()
+    torch.cuda.memory._dump_snapshot(str(memory_snapshot_path))
+    print(f"CUDA memory snapshot saved to {memory_snapshot_path}")
+
+# exit()
 
 torch.cuda.synchronize()
 end = perf_counter()
