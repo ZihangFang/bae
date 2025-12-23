@@ -30,6 +30,20 @@ USE_QUATERNIONS = True
 file_name = f'{TARGET_DATASET}.{TARGET_PROBLEM}'
 dataset = get_problem(TARGET_PROBLEM, TARGET_DATASET, use_quat=USE_QUATERNIONS)
 memory_snapshot_path = None
+cuda_device = torch.device(DEVICE) if DEVICE.startswith("cuda") else None
+
+
+def _format_bytes(num_bytes: int) -> str:
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
+    size = float(num_bytes)
+    unit = units[0]
+    for unit in units:
+        if size < 1024.0 or unit == units[-1]:
+            break
+        size /= 1024.0
+    if unit == "B":
+        return f"{int(size)} {unit}"
+    return f"{size:.2f} {unit}"
 
 if DEVICE.startswith("cuda") and torch.cuda.is_available():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -41,7 +55,7 @@ if DEVICE.startswith("cuda") and torch.cuda.is_available():
         enabled="all",
         context="all",
         stacks="python",
-        device=torch.device(DEVICE),
+        device=cuda_device,
         clear_history=True,
     )
 
@@ -81,21 +95,35 @@ print('Loss:', least_square_error(
 
 print("Initial loss", optimizer.model.loss(input, None).item())
 
+if cuda_device is not None and torch.cuda.is_available():
+    torch.cuda.synchronize(cuda_device)
+    torch.cuda.reset_peak_memory_stats(cuda_device)
+
 start = perf_counter()
 for idx in range(20):
     loss = optimizer.step(input)
     print('Iteration', idx, 'loss', loss.item(), 'time', perf_counter() - start)
 
 if memory_snapshot_path:
-    torch.cuda.synchronize()
+    torch.cuda.synchronize(cuda_device)
     torch.cuda.memory._dump_snapshot(str(memory_snapshot_path))
     print(f"CUDA memory snapshot saved to {memory_snapshot_path}")
 
 # exit()
 
-torch.cuda.synchronize()
+if cuda_device is not None and torch.cuda.is_available():
+    torch.cuda.synchronize(cuda_device)
 end = perf_counter()
 print('Time', end - start)
+
+if cuda_device is not None and torch.cuda.is_available():
+    peak_allocated = torch.cuda.max_memory_allocated(cuda_device)
+    try:
+        peak_reserved = torch.cuda.max_memory_reserved(cuda_device)
+    except AttributeError:  # older PyTorch
+        peak_reserved = torch.cuda.max_memory_cached(cuda_device)
+    print(f"Peak CUDA memory allocated: {_format_bytes(peak_allocated)}")
+    print(f"Peak CUDA memory reserved: {_format_bytes(peak_reserved)}")
 
 print('Ending loss:', least_square_error(
     model.pose,
