@@ -3,9 +3,12 @@ import math
 import torch
 from pypose.optim import LevenbergMarquardt as ppLM
 import pypose as pp
+
+from warp.optim import linear
+from bae.sparse.warp_wrappers import format_vec_for_bsr, torchbsr2wp, wp2torchbsr
 from ..autograd.graph import backward, construct_sbt
 from ..autograd.function import TrackingTensor
-from ..sparse.py_ops import diagonal_op_
+from ..sparse.py_ops import diagonal_op_, inv_op
 from ..sparse.spgemm import CuSparse
 from ..utils.linear_operator import NormalMatVec
 
@@ -121,3 +124,142 @@ class LM(ppLM):
                         param[:, 7:] += d.view(param.shape[0], -1)[:, 6:]
                 else:
                     param.add_(d.view(param.shape))
+
+import warp as wp
+from warp import sparse
+class Schur(LM):
+    @torch.no_grad()
+    def step(self, input, target=None, weight=None):
+        for pg in self.param_groups:
+            self.reject_count = 0
+            weight = self.weight if weight is None else weight
+            R = self.model(input, target)
+
+            R = R[0]
+            J = jacobian(R, pg['params'])
+            J[0] = J[0]
+            J[1] = J[1]
+
+            self.last = self.loss = self.loss if hasattr(self, 'loss') \
+                                    else self.model.loss(input, target)
+            # torch.cuda.nvtx.range_push("JTJc")
+            J0wp = torchbsr2wp(J[0])
+            J0twp = sparse.bsr_transposed(J0wp)
+            U = sparse.bsr_mm(J0twp, J0wp)
+            # torch.cuda.nvtx.range_pop()
+            # J0D = J[0].to_dense()
+            # UD = U.to_dense()
+            # torch.testing.assert_close(UD, J0D.mT @ J0D)
+            # del J0D
+            # del UD
+            # torch.cuda.nvtx.range_push("JTJp")
+            J1wp = torchbsr2wp(J[1])
+            J1twp = sparse.bsr_transposed(J1wp)
+            V = sparse.bsr_mm(J1twp, J1wp)
+            # torch.cuda.nvtx.range_pop()
+            # J1D = J[1].to_dense()
+            # VD = V.to_dense()
+            # torch.testing.assert_close(VD, J1D.mT @ J1D)
+            # del J1D
+            # del VD
+            
+            # torch.cuda.nvtx.range_push("Clamp")
+            Upt = wp2torchbsr(U)
+            Vpt = wp2torchbsr(V)
+            diagonal_op_(Upt, op=partial(torch.clamp_, min=pg['min'], max=pg['max']))
+            diagonal_op_(Vpt, op=partial(torch.clamp_, min=pg['min'], max=pg['max']))
+            # torch.cuda.nvtx.range_pop()
+
+            while self.last <= self.loss:
+                damping = pg['damping']
+                R = R.reshape(-1)
+                
+                # torch.cuda.nvtx.range_push("Damp")
+                # damp = lambda x: x.pow(2) * damping + x
+                damp = partial(torch.mul, other=1+damping)
+                diagonal_op_(Upt, op=damp)
+                diagonal_op_(Vpt, op=damp)
+                # sparse.bsr_set_diag(U, sparse.bsr_get_diag(U) * (1+pg['damping']))
+                # sparse.bsr_set_diag(V, sparse.bsr_get_diag(V) * (1+pg['damping']))
+                # torch.cuda.nvtx.range_pop()
+
+                # torch.cuda.nvtx.range_push("W")
+                W = J0twp @ J1wp
+                # torch.cuda.nvtx.range_pop()
+                # torch.cuda.nvtx.range_push("Ic")
+                Rwp = format_vec_for_bsr(R, J0twp.block_shape)
+                Ic = sparse.bsr_mv(J0twp, Rwp, alpha=-1.0)
+                Ip = sparse.bsr_mv(J1twp, Rwp, alpha=-1.0)
+                # torch.cuda.nvtx.range_pop()
+                # torch.cuda.nvtx.range_push("Inv")
+                V_i = torchbsr2wp(inv_op(Vpt))
+                # torch.cuda.nvtx.range_pop()
+                # torch.cuda.nvtx.range_push("WVi")
+                WV_i = W @ V_i
+                # torch.cuda.nvtx.range_pop()
+                # torch.cuda.nvtx.range_push("rhs1")
+                rhs = sparse.bsr_mv(WV_i, Ip, y=Ic, alpha=-1.0, beta=1.0)
+                # torch.cuda.nvtx.range_pop()
+                # torch.cuda.nvtx.range_push("lhs1")
+                Wt = W.transpose()
+                lhs = sparse.bsr_axpy(U, WV_i @ Wt, alpha=1.0, beta=-1.0)  # this matrix is NOT symetric
+                # torch.cuda.nvtx.range_pop()
+                D_c = wp.zeros_like(rhs)
+                # torch.cuda.nvtx.range_push("Solve C")
+                solver_tol = getattr(self.solver, "tol", None)
+                solver_maxiter = getattr(self.solver, "maxiter", 0) or 0
+                results = linear.cg(
+                    A=lhs,
+                    b=rhs,
+                    x=D_c,
+                    tol=solver_tol,
+                    maxiter=solver_maxiter,
+                    M=linear.preconditioner(lhs),
+                )
+
+                # torch.cuda.nvtx.range_pop()
+                
+                # torch.cuda.nvtx.range_push("rhs2")
+                
+                rhs = sparse.bsr_mv(Wt, D_c, alpha=-1.0, beta=1.0, y=Ip)  # rhs = Ip - Wt @ D_c
+                # torch.cuda.nvtx.range_pop()
+                # torch.cuda.nvtx.range_push("solve2")
+                lhs = V
+                D_p = wp.zeros_like(rhs)
+                results = linear.cg(
+                    A=lhs,
+                    b=rhs,
+                    x=D_p,
+                    tol=solver_tol,
+                    maxiter=solver_maxiter,
+                    M=linear.preconditioner(lhs),
+                )
+                # torch.cuda.nvtx.range_pop()
+                # torch.cuda.nvtx.range_push("Update")
+                D_c = wp.to_torch(D_c).flatten()
+                D_p = wp.to_torch(D_p).flatten()
+                D = torch.cat([D_c, D_p])
+                self.update_parameter(pg['params'], D)
+                # torch.cuda.nvtx.range_pop()
+                self.loss = self.model.loss(input, target)
+                print("Loss:", self.loss, "Last Loss:", self.last, "Reject Count:", self.reject_count, "Damping:", pg['damping'])
+                # torch.cuda.nvtx.range_push("Strategy")
+                # self.strategy.update(pg, last=self.last, loss=self.loss, J=J, D=D, R=R.view(-1, 1))
+                # Pass Warp-format Jacobians as well so strategies can do bsrmv without
+                # hitting PyTorch's CUDA BSR matvec limitation for rectangular blocks.
+                self.strategy.update(
+                    pg,
+                    last=self.last,
+                    loss=self.loss,
+                    J=J,
+                    Jwp=[J0wp, J1wp],
+                    D=[D_c, D_p],
+                    R=R.view(-1, 1),
+                )
+                # torch.cuda.nvtx.range_pop()
+                if self.last < self.loss and self.reject_count < self.reject: # reject step
+                    self.update_parameter(params = pg['params'], step = -D)
+                    self.loss, self.reject_count = self.last, self.reject_count + 1
+                else:
+                    break
+        return self.loss

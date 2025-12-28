@@ -11,3 +11,4 @@ tmp_debug/*
 task.md
 *.pickle
 *.png
+.warp_cache/*
