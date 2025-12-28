@@ -3,12 +3,16 @@ from pathlib import Path
 from datetime import datetime
 import torch
 import pypose as pp
+import warp as wp
+from warp import sparse as wpsparse
 
 from ba_helpers import Reproj, least_square_error
+from bae.optim.optimizer import Schur
 from datapipes.bal_loader import get_problem, read_bal_data
 from bae.sparse.py_ops import *
 from bae.optim import LM
 from bae.utils.pysolvers import PCG, CuDSS
+from bae.sparse.warp_wrappers import format_vec_for_bsr
 
 TARGET_DATASET = "ladybug"
 TARGET_PROBLEM = "problem-1723-156502-pre"
@@ -90,13 +94,68 @@ input = {
     "point_indices": trimmed_dataset['point_index_of_observations']
 }
 
+class TrustRegion(pp.optim.strategy.TrustRegion):
+    def update(self, pg, last, loss, J, D, R, *args, **kwargs):
+        # PyTorch CUDA BSR matvec currently assumes square blocks; allow passing Warp
+        # BSR matrices via `Jwp` to use Warp's bsrmv for rectangular blocks.
+        Jwp = kwargs.get("Jwp")
+        if Jwp is not None:
+            J = Jwp
+        JD = None
+        for i in range(len(D)):
+            if JD is None:
+                if Jwp is not None:
+                    Dwp = format_vec_for_bsr(D[i].flatten().contiguous(), J[i].block_shape)
+                    JD = wp.to_torch(wpsparse.bsr_mv(J[i], Dwp)).flatten()
+                else:
+                    JD = J[i] @ D[i].flatten()
+            else:
+                if Jwp is not None:
+                    Dwp = format_vec_for_bsr(D[i].flatten().contiguous(), J[i].block_shape)
+                    JD += wp.to_torch(wpsparse.bsr_mv(J[i], Dwp)).flatten()
+                else:
+                    JD += J[i] @ D[i].flatten()
+        JD = JD[..., None]
+        quality = (last - loss) / -((JD).mT @ (2 * R.view_as(JD) + JD)).squeeze()
+        pg['radius'] = 1. / pg['damping']
+        if quality > pg['high']:
+            pg['radius'] = pg['up'] * pg['radius']
+            pg['down'] = self.down
+        elif quality > pg['low']:
+            pg['radius'] = pg['radius']
+            pg['down'] = self.down
+        else:
+            pg['radius'] = pg['radius'] * pg['down']
+            pg['down'] = pg['down'] * pg['factor']
+        pg['down'] = max(self.min, min(pg['down'], self.max))
+        pg['radius'] = max(self.min, min(pg['radius'], self.max))
+        pg['damping'] = 1. / pg['radius']
+class Adaptive(pp.optim.strategy.Adaptive):
+    def update(self, pg, last, loss, J, D, R, *args, **kwargs):
+        J = [i.to_sparse_coo() for i in J]
+        JD = None
+        for i in range(len(D)):
+            if JD is None:
+                JD = J[i] @ D[i]
+            else:
+                JD += J[i] @ D[i]
+        JD = JD[..., None]
+        quality = (last - loss) / -((JD).mT @ (2 * R.view_as(JD) + JD)).squeeze()
+        if quality > pg['high']:
+            pg['damping'] = pg['damping'] * pg['down']
+        elif quality > pg['low']:
+            pg['damping'] = pg['damping']
+        else:
+            pg['damping'] = pg['damping'] * pg['up']
+        pg['damping'] = max(self.min, min(pg['damping'], self.max))
+
 model = Reproj(
     trimmed_dataset['camera_params'][:, :NUM_CAMERA_PARAMS].clone(),
     trimmed_dataset['points_3d'].clone()
 ).to(DEVICE)
-strategy = pp.optim.strategy.TrustRegion(up=2.0, down=0.5**4)
+strategy = TrustRegion(up=2.0, down=0.5**4)
 solver = PCG(tol=1e-4, maxiter=250)  # or CuDSS()
-optimizer = LM(model, matrix_free_normal=True, strategy=strategy, solver=solver, reject=30)
+optimizer = Schur(model, matrix_free_normal=True, strategy=strategy, solver=solver, reject=30)
 
 
 
