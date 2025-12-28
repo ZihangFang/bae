@@ -67,17 +67,17 @@ class LM(ppLM):
             J = torch.cat([j.to_sparse_coo() for j in J_list], dim=-1)
 
             self.last = self.loss = self.loss if hasattr(self, 'loss') else self.model.loss(input, target)
-            J_T = J.mT
             self.reject_count = 0
-            J_T = J_T.to_sparse_csr()
             J = J.to_sparse_csr()
-            rhs = -J_T @ R.view(-1, 1)
 
             if self.matrix_free_normal:
                 diag = NormalMatVec._compute_diag(J).clamp(min=pg['min'], max=pg['max'])
                 A = NormalMatVec(J, damping=0.0, diag=diag)
+                rhs = -(A._get_Jt() @ R.view(-1, 1))
                 diag_scale = 1.0
             else:
+                J_T = J.mT.to_sparse_csr()
+                rhs = -J_T @ R.view(-1, 1)
                 A = self.mm(J_T, J)
                 diagonal_op_(A, op=partial(torch.clamp_, min=pg['min'], max=pg['max']))
 
