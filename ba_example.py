@@ -27,11 +27,15 @@ DEVICE = 'cuda'
 OPTIMIZE_INTRINSICS = True
 
 USE_QUATERNIONS = True
+REPORT_WARP_MEMPOOL = True
 
 file_name = f'{TARGET_DATASET}.{TARGET_PROBLEM}'
 dataset = get_problem(TARGET_PROBLEM, TARGET_DATASET, use_quat=USE_QUATERNIONS)
 memory_snapshot_path = None
 cuda_device = torch.device(DEVICE) if DEVICE.startswith("cuda") else None
+warp_device = None
+warp_mempool_start_current = None
+warp_mempool_start_high = None
 
 
 def _format_bytes(num_bytes: int) -> str:
@@ -59,6 +63,17 @@ if DEVICE.startswith("cuda") and torch.cuda.is_available():
         device=cuda_device,
         clear_history=True,
     )
+
+if REPORT_WARP_MEMPOOL and DEVICE.startswith("cuda"):
+    try:
+        if wp.is_cuda_available():
+            warp_device = wp.get_device("cuda:0" if DEVICE == "cuda" else DEVICE)
+            if not wp.is_mempool_enabled(warp_device):
+                wp.set_mempool_enabled(warp_device, True)
+            warp_mempool_start_current = wp.get_mempool_used_mem_current(warp_device)
+            warp_mempool_start_high = wp.get_mempool_used_mem_high(warp_device)
+    except Exception as e:
+        print(f"Warning: failed to query Warp mempool stats: {e}")
 
 if OPTIMIZE_INTRINSICS:
     NUM_CAMERA_PARAMS = 10 if USE_QUATERNIONS else 9
@@ -125,6 +140,15 @@ if cuda_device is not None and torch.cuda.is_available():
         peak_reserved = torch.cuda.max_memory_cached(cuda_device)
     print(f"Peak CUDA memory allocated: {_format_bytes(peak_allocated)}")
     print(f"Peak CUDA memory reserved: {_format_bytes(peak_reserved)}")
+
+if warp_device is not None and warp_mempool_start_current is not None and warp_mempool_start_high is not None:
+    try:
+        warp_current = wp.get_mempool_used_mem_current(warp_device)
+        warp_high = wp.get_mempool_used_mem_high(warp_device)
+        print(f"Warp CUDA mempool current: {_format_bytes(warp_current)} (Δ {_format_bytes(warp_current - warp_mempool_start_current)})")
+        print(f"Warp CUDA mempool high-water: {_format_bytes(warp_high)} (Δ {_format_bytes(warp_high - warp_mempool_start_high)})")
+    except Exception as e:
+        print(f"Warning: failed to query Warp mempool stats: {e}")
 
 print('Ending loss:', least_square_error(
     model.pose,
