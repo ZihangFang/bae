@@ -10,6 +10,7 @@ def construct_sbt(jac_from_vmap, num, index: Optional[torch.Tensor], type=torch.
         index = torch.arange(num, device=jac_from_vmap.device, dtype=torch.int32)
     n = index.shape[0] # num 2D points
     block_shape = jac_from_vmap.shape[1:]
+    idx_dtype = index.dtype
 
     if type == torch.sparse_bsc:
         i = torch.stack([torch.arange(n, dtype=index.dtype, device=index.device), index])
@@ -23,7 +24,7 @@ def construct_sbt(jac_from_vmap, num, index: Optional[torch.Tensor], type=torch.
                                     device=index.device, dtype=jac_from_vmap.dtype)
     elif type == torch.sparse_bsr:
         return torch.sparse_bsr_tensor(col_indices=index, 
-                                    crow_indices=torch.arange(n + 1, device=index.device, dtype=torch.int32),
+                                    crow_indices=torch.arange(n + 1, device=index.device, dtype=idx_dtype),
                                     values = jac_from_vmap,
                                     size = (n * block_shape[0], num * block_shape[1]),
                                     device=index.device, dtype=jac_from_vmap.dtype)
@@ -159,4 +160,3 @@ def jacobian(output, params):
             delattr(param, 'jactrace')
             
     return res
-
