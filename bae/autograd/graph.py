@@ -122,4 +122,41 @@ def backward(output_):
             backward(arg)
 
 
+def jacobian(output, params):
+    assert output.optrace[id(output)][0] == 'map', "The last operation in compute graph being indexing transform is not meaningful"
+    backward(output)
+    res = []
+    for param in params:
+        if hasattr(param, 'jactrace'):
+            if getattr(param, 'trim_SE3_grad', False):
+                if isinstance(param.jactrace, tuple):
+                    values = param.jactrace[1]
+                elif isinstance(param.jactrace, torch.Tensor) and param.jactrace.layout == torch.sparse_bsr:
+                    values = param.jactrace.values()
+                else:
+                    values = param.jactrace
+
+                if values.shape[-1] == 7:
+                    values = values[..., :6]
+                else:
+                    values = torch.cat([values[..., :6], values[..., 7:]], dim=-1)
+                
+                if isinstance(param.jactrace, tuple):
+                    param.jactrace = (param.jactrace[0], values)
+                elif isinstance(param.jactrace, torch.Tensor) and param.jactrace.layout == torch.sparse_bsr:
+                    param.jactrace = torch.sparse_bsr_tensor(
+                        col_indices=param.jactrace.col_indices(), 
+                        crow_indices=param.jactrace.crow_indices(),
+                        values=values,
+                        size=(param.jactrace.shape[0], param.shape[0] * values.shape[-1]),
+                        device=param.device,
+                    )
+                else:
+                    param.jactrace = values
+            if type(param.jactrace) is tuple:
+                param.jactrace = construct_sbt(param.jactrace[1], param.shape[0], param.jactrace[0], type=torch.sparse_bsr)
+            res.append(param.jactrace)
+            delattr(param, 'jactrace')
+            
+    return res
 
