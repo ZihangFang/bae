@@ -1,6 +1,6 @@
 from functools import partial
 import torch
-from bae.utils.pysolvers import cuSolverSP as cudss
+from bae.utils.pysolvers import CuDSS as cudss
 import scipy.sparse.linalg as spla
 import scipy.sparse as sp
 
