@@ -1,29 +1,40 @@
-from functools import partial
 import torch
-from bae.utils.pysolvers import CuDSS as cudss
-import scipy.sparse.linalg as spla
-import scipy.sparse as sp
+import pytest
 
 
-if __name__ == '__main__':
-    spd = torch.rand(4, 3)
-    A = spd.T @ spd
-    print(A)
-    b = torch.rand(3).to(torch.float64).cuda()
-    print(b)
-    A = A.to_sparse_csr().to(torch.float64).cuda()
-    A = torch.sparse_csr_tensor(torch.tensor(A.crow_indices(), dtype=torch.int32),
-                                torch.tensor(A.col_indices(), dtype=torch.int32), torch.tensor(A.values()),
-                                dtype=torch.double)
-    print(A)
-    x = cudss(A, b)
-    # print(x)
-    print((A @ x - b).norm())
-    A_csr = sp.csr_matrix((A.values().cpu().numpy(),
-                                A.col_indices().cpu().numpy(),
-                                A.crow_indices().cpu().numpy()),
-                                shape=A.shape)
-    b = b.cpu().numpy()
-    x = spla.spsolve(A_csr, b, use_umfpack=False)
-    # print(x)
-    print(A_csr @ x - b)
+def _make_spd_system(n: int, dtype: torch.dtype, device: torch.device):
+    spd = torch.rand(n + 1, n, dtype=dtype, device=device)
+    A = spd.mT @ spd
+    A = A + (1e-3 * torch.eye(n, dtype=dtype, device=device))
+    b = torch.rand(n, dtype=dtype, device=device)
+    return A.to_sparse_csr(), b
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_cudss_solve(dtype):
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required for CuDirectSparseSolver")
+
+    try:
+        from bae.sparse.solve import CuDirectSparseSolver
+    except Exception as e:
+        pytest.skip(f"CuDirectSparseSolver unavailable: {e}")
+
+    device = torch.device("cuda")
+    A, b = _make_spd_system(n=32, dtype=dtype, device=device)
+
+    solver = CuDirectSparseSolver()
+    x = solver(A, b)
+
+    r = A @ x - b
+    atol = 1e-5 if dtype == torch.float32 else 1e-10
+    assert torch.linalg.norm(r).item() < atol + 1e-5 * torch.linalg.norm(b).item()
+
+
+if __name__ == "__main__":
+    from bae.sparse.solve import CuDirectSparseSolver
+
+    A, b = _make_spd_system(n=3, dtype=torch.float64, device=torch.device("cuda"))
+    solver = CuDirectSparseSolver()
+    x = solver(A, b)
+    print("||Ax - b|| =", (A @ x - b).norm().item())
