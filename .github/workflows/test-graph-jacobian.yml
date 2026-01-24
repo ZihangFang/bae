@@ -19,17 +19,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies (venv)
+      - name: Install dependencies
         run: |
-          python -m venv --system-site-packages .venv
-          ./.venv/bin/python -m pip install --upgrade pip
-          ./.venv/bin/python -m pip install pytest
+          python -m pip install --break-system-packages --no-cache-dir --target /tmp/pydeps pytest
         env:
           PIP_CACHE_DIR: /tmp/pip-cache
 
       - name: Run tests
         env:
-          PYTHONPATH: ${{ github.workspace }}
+          PYTHONPATH: /tmp/pydeps:${{ github.workspace }}
         run: |
-          ./.venv/bin/python -c "import torch; print('torch', torch.__version__)"
-          ./.venv/bin/python -m pytest -q tests/autograd/test_graph_jacobian.py
+          python -c "import torch; print('torch', torch.__version__)"
+          python -m pytest -q tests/autograd/test_graph_jacobian.py
