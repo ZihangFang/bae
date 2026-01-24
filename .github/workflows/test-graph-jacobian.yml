@@ -1,0 +1,39 @@
+name: test-graph-jacobian
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    container:
+      image: pytorch/pytorch:2.10.0-cuda13.0-cudnn9-devel
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --break-system-packages --no-cache-dir --target /tmp/pydeps pytest
+          python -m pip install --break-system-packages --no-cache-dir --target /tmp/pydeps --no-deps --no-build-isolation "git+https://github.com/pypose/pypose.git@bae"
+        env:
+          PIP_CACHE_DIR: /tmp/pip-cache
+
+      - name: Run tests
+        env:
+          PYTHONPATH: /tmp/pydeps:${{ github.workspace }}
+        run: |
+          python -c "import torch; print('torch', torch.__version__)"
+          python -m pytest -q tests/autograd/test_graph_jacobian.py
