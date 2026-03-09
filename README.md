@@ -18,7 +18,8 @@
 - **Levenberg-Marquardt Optimizer**: Custom implementation of the LM algorithm for non-linear least squares problems
 
 ### Future Plan
-- [ ] An new backend for [distributed solver](https://github.com/NVIDIA/AMGX)  
+- [ ] An new backend for [distributed solver](https://github.com/NVIDIA/AMGX)
+- [ ] Add Apple Silicon GPU support
 
 ## Installation
 
