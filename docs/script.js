@@ -43,7 +43,7 @@ class BACanvas {
     }
 
     build() {
-        this.svg.innerHTML = '';
+        while (this.svg.firstChild) { this.svg.removeChild(this.svg.firstChild); }
         this.elements = {
             edges: [],
             repZ: [],
@@ -52,7 +52,8 @@ class BACanvas {
             jacZEdges: [],
             jacPEdges: [],
             jacZBlocks: [],
-            jacPBlocks: []
+            jacPBlocks: [],
+            staticEdges: []
         };
 
         const g = document.createElementNS(SVG_NS, "g");
@@ -101,26 +102,31 @@ class BACanvas {
             const edgePFlow = this.addPath(pNodes[o.p].x, pNodes[o.p].y, repPX, y + 20, "edge-flow");
             this.elements.edges.push(edgeZFlow, edgePFlow);
 
+            const staticEdge1 = this.addPath(repZX + 40, y + 20, resX, y + 20, "edge");
+            const staticEdge2 = this.addPath(repPX + 40, y + 20, resX, y + 20, "edge");
+            staticEdge1.style.opacity = '0';
+            staticEdge2.style.opacity = '0';
+            staticEdge1.style.transition = "opacity 0.5s ease-in-out";
+            staticEdge2.style.transition = "opacity 0.5s ease-in-out";
+            this.elements.staticEdges.push(staticEdge1, staticEdge2);
+
             const isFixed = this.isGaugeFixed && o.c === 0;
             const repZNode = this.addRect(repZX, y, 40, 40, `cam-node ${isFixed ? 'fixed-node' : ''}`);
-            repZNode.style.opacity = 0;
+            repZNode.style.opacity = '0';
             const repZText = this.addText(`C${o.c}`, repZX + 20, y + 20, "label");
-            repZText.style.opacity = 0;
+            repZText.style.opacity = '0';
             this.elements.repZ.push({ rect: repZNode, text: repZText });
 
             const repPNode = this.addRect(repPX, y, 40, 40, "pt-node");
-            repPNode.style.opacity = 0;
+            repPNode.style.opacity = '0';
             const repPText = this.addText(`P${o.p}`, repPX + 20, y + 20, "label");
-            repPText.style.opacity = 0;
+            repPText.style.opacity = '0';
             this.elements.repP.push({ rect: repPNode, text: repPText });
 
-            this.addPath(repZX + 40, y + 20, resX, y + 20, "edge");
-            this.addPath(repPX + 40, y + 20, resX, y + 20, "edge");
-
             const resNode = this.addRect(resX, y, 40, 40, "res-node");
-            resNode.style.opacity = 0;
+            resNode.style.opacity = '0';
             const resText = this.addText(`r${i}`, resX + 20, y + 20, "label");
-            resText.style.opacity = 0;
+            resText.style.opacity = '0';
             this.elements.res.push({ rect: resNode, text: resText, y: y+20 });
         });
 
@@ -132,11 +138,11 @@ class BACanvas {
                 const bx = jzX + c * (blockSize + blockGap);
                 const by = jStartY + r * (blockSize + blockGap);
                 const block = this.addRect(bx, by, blockSize, blockSize, "cam-jac-node node-rect");
-                block.style.opacity = 0;
+                block.style.opacity = '0';
                 let mathNode = null;
                 if (isNonZero && !isFixed) {
                     mathNode = this.addMath(`\\frac{\\partial r_{${r}}}{\\partial C_{${c}}}`, bx, by, blockSize, blockSize, "math-label");
-                    mathNode.fo.style.opacity = 0;
+                    mathNode.fo.style.opacity = '0';
                 }
                 this.elements.jacZBlocks.push({ block, opacity, mathNode });
                 if (isNonZero && !isFixed) {
@@ -153,11 +159,11 @@ class BACanvas {
                 const bx = jpX + c * (blockSize + blockGap);
                 const by = jStartY + r * (blockSize + blockGap);
                 const block = this.addRect(bx, by, blockSize, blockSize, "pt-jac-node node-rect");
-                block.style.opacity = 0;
+                block.style.opacity = '0';
                 let mathNode = null;
                 if (isNonZero) {
                     mathNode = this.addMath(`\\frac{\\partial r_{${r}}}{\\partial P_{${c}}}`, bx, by, blockSize, blockSize, "math-label");
-                    mathNode.fo.style.opacity = 0;
+                    mathNode.fo.style.opacity = '0';
                 }
                 this.elements.jacPBlocks.push({ block, opacity, mathNode });
                 if (isNonZero) {
@@ -247,7 +253,7 @@ class BACanvas {
 
         step(() => {
             this.elements.edges.forEach(e => {
-                e.style.opacity = 0.8;
+                e.style.opacity = '0.8';
                 e.style.transition = "stroke-dashoffset 1s ease-in-out";
                 e.style.strokeDashoffset = "0";
             });
@@ -256,25 +262,26 @@ class BACanvas {
         step(() => {
             this.elements.repZ.forEach(n => {
                 n.rect.style.opacity = n.rect.classList.contains('fixed-node') ? 0.4 : 1;
-                n.text.style.opacity = 1;
+                n.text.style.opacity = '1';
             });
             this.elements.repP.forEach(n => {
-                n.rect.style.opacity = 1;
-                n.text.style.opacity = 1;
+                n.rect.style.opacity = '1';
+                n.text.style.opacity = '1';
             });
+            this.elements.staticEdges.forEach(e => e.style.opacity = 0.6);
             this.elements.edges.forEach(e => e.style.opacity = 0);
         }, 1200);
 
         step(() => {
             this.elements.res.forEach(n => {
-                n.rect.style.opacity = 1;
-                n.text.style.opacity = 1;
+                n.rect.style.opacity = '1';
+                n.text.style.opacity = '1';
             });
         }, 800);
 
         step(() => {
             [...this.elements.jacZEdges, ...this.elements.jacPEdges].forEach(e => {
-                e.style.opacity = 0.8;
+                e.style.opacity = '0.8';
                 e.style.transition = "stroke-dashoffset 1s ease-in-out";
                 e.style.strokeDashoffset = "0";
             });
@@ -283,11 +290,11 @@ class BACanvas {
         step(() => {
             this.elements.jacZBlocks.forEach(b => {
                 b.block.style.opacity = b.opacity;
-                if (b.mathNode) b.mathNode.fo.style.opacity = 1;
+                if (b.mathNode) b.mathNode.fo.style.opacity = '1';
             });
             this.elements.jacPBlocks.forEach(b => {
                 b.block.style.opacity = b.opacity;
-                if (b.mathNode) b.mathNode.fo.style.opacity = 1;
+                if (b.mathNode) b.mathNode.fo.style.opacity = '1';
             });
         }, 1200);
 
@@ -310,13 +317,14 @@ class PGOCanvas {
     }
 
     build() {
-        this.svg.innerHTML = '';
+        while (this.svg.firstChild) { this.svg.removeChild(this.svg.firstChild); }
         this.elements = {
             edges: [],
             repNodes: [],
             res: [],
             jacEdges: [],
-            jacBlocks: []
+            jacBlocks: [],
+            staticEdges: []
         };
 
         const g = document.createElementNS(SVG_NS, "g");
@@ -353,25 +361,30 @@ class PGOCanvas {
             const edgeFlow2 = this.addPath(nodes[o.to].x, nodes[o.to].y, repX2, y + 20, "edge-flow");
             this.elements.edges.push(edgeFlow1, edgeFlow2);
 
+            const staticEdge1 = this.addPath(repX1 + 40, y + 20, resX, y + 20, "edge");
+            const staticEdge2 = this.addPath(repX2 + 40, y + 20, resX, y + 20, "edge");
+            staticEdge1.style.opacity = '0';
+            staticEdge2.style.opacity = '0';
+            staticEdge1.style.transition = "opacity 0.5s ease-in-out";
+            staticEdge2.style.transition = "opacity 0.5s ease-in-out";
+            this.elements.staticEdges.push(staticEdge1, staticEdge2);
+
             const rep1Node = this.addRect(repX1, y, 40, 40, "cam-node");
-            rep1Node.style.opacity = 0;
+            rep1Node.style.opacity = '0';
             const rep1Text = this.addText(`X${o.from}`, repX1 + 20, y + 20, "label");
-            rep1Text.style.opacity = 0;
+            rep1Text.style.opacity = '0';
             
             const rep2Node = this.addRect(repX2, y, 40, 40, "cam-node");
-            rep2Node.style.opacity = 0;
+            rep2Node.style.opacity = '0';
             const rep2Text = this.addText(`X${o.to}`, repX2 + 20, y + 20, "label");
-            rep2Text.style.opacity = 0;
+            rep2Text.style.opacity = '0';
             
             this.elements.repNodes.push({ rect: rep1Node, text: rep1Text }, { rect: rep2Node, text: rep2Text });
 
-            this.addPath(repX1 + 40, y + 20, resX, y + 20, "edge");
-            this.addPath(repX2 + 40, y + 20, resX, y + 20, "edge");
-
             const resNode = this.addRect(resX, y, 40, 40, "res-node");
-            resNode.style.opacity = 0;
+            resNode.style.opacity = '0';
             const resText = this.addText(`r${i}`, resX + 20, y + 20, "label");
-            resText.style.opacity = 0;
+            resText.style.opacity = '0';
             this.elements.res.push({ rect: resNode, text: resText, y: y+20 });
         });
 
@@ -382,11 +395,11 @@ class PGOCanvas {
                 const bx = jX + c * (blockSize + blockGap);
                 const by = jStartY + r * (blockSize + blockGap);
                 const block = this.addRect(bx, by, blockSize, blockSize, "cam-jac-node node-rect");
-                block.style.opacity = 0;
+                block.style.opacity = '0';
                 let mathNode = null;
                 if (isNonZero) {
                     mathNode = this.addMath(`\\frac{\\partial r_{${r}}}{\\partial X_{${c}}}`, bx, by, blockSize, blockSize, "math-label");
-                    mathNode.fo.style.opacity = 0;
+                    mathNode.fo.style.opacity = '0';
                 }
                 this.elements.jacBlocks.push({ block, opacity, mathNode });
                 if (isNonZero) {
@@ -476,7 +489,7 @@ class PGOCanvas {
 
         step(() => {
             this.elements.edges.forEach(e => {
-                e.style.opacity = 0.8;
+                e.style.opacity = '0.8';
                 e.style.transition = "stroke-dashoffset 1s ease-in-out";
                 e.style.strokeDashoffset = "0";
             });
@@ -484,22 +497,23 @@ class PGOCanvas {
 
         step(() => {
             this.elements.repNodes.forEach(n => {
-                n.rect.style.opacity = 1;
-                n.text.style.opacity = 1;
+                n.rect.style.opacity = '1';
+                n.text.style.opacity = '1';
             });
+            this.elements.staticEdges.forEach(e => e.style.opacity = 0.6);
             this.elements.edges.forEach(e => e.style.opacity = 0);
         }, 1200);
 
         step(() => {
             this.elements.res.forEach(n => {
-                n.rect.style.opacity = 1;
-                n.text.style.opacity = 1;
+                n.rect.style.opacity = '1';
+                n.text.style.opacity = '1';
             });
         }, 800);
 
         step(() => {
             this.elements.jacEdges.forEach(e => {
-                e.style.opacity = 0.8;
+                e.style.opacity = '0.8';
                 e.style.transition = "stroke-dashoffset 1s ease-in-out";
                 e.style.strokeDashoffset = "0";
             });
@@ -508,7 +522,7 @@ class PGOCanvas {
         step(() => {
             this.elements.jacBlocks.forEach(b => {
                 b.block.style.opacity = b.opacity;
-                if (b.mathNode) b.mathNode.fo.style.opacity = 1;
+                if (b.mathNode) b.mathNode.fo.style.opacity = '1';
             });
         }, 1200);
 
