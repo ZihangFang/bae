@@ -38,7 +38,7 @@ class BACanvas {
         this.svg.setAttribute("viewBox", "0 0 1000 600");
         this.container.appendChild(this.svg);
         this.elements = {};
-        this.timeline = null;
+        this.timeouts = [];
         this.build();
     }
 
@@ -71,15 +71,15 @@ class BACanvas {
         const zX = 100, zStartY = 150, zGap = 60;
         const pX = 100, pStartY = 350, pGap = 60;
         const repZX = 350, repPX = 430, resX = 550, repStartY = 200, resGap = 60;
-        const jzX = 750, jpX = 850, jStartY = 200;
-        const blockSize = 30, blockGap = 4;
+        const jzX = 700, jpX = 840, jStartY = 200;
+        const blockSize = 55, blockGap = 6;
 
         this.addText("Z (Cameras)", zX + 20, zStartY - 40, "title-label");
         this.addText("P (Landmarks)", pX + 20, pStartY - 40, "title-label");
         this.addText("Replication", (repZX + repPX) / 2 + 20, repStartY - 40, "title-label");
         this.addText("Residuals R", resX + 20, repStartY - 40, "title-label");
-        this.addText("∂R/∂Z", jzX + (numZ*blockSize)/2, jStartY - 40, "title-label");
-        this.addText("∂R/∂P", jpX + (numP*blockSize)/2, jStartY - 40, "title-label");
+        this.addMath("\\frac{\\partial \\mathbf{r}}{\\partial \\mathbf{Z}}", jzX, jStartY - 60, numZ * (blockSize + blockGap) - blockGap, 40, "title-label");
+        this.addMath("\\frac{\\partial \\mathbf{r}}{\\partial \\mathbf{P}}", jpX, jStartY - 60, numP * (blockSize + blockGap) - blockGap, 40, "title-label");
 
         const zNodes = [];
         for (let i = 0; i < numZ; i++) {
@@ -133,7 +133,12 @@ class BACanvas {
                 const by = jStartY + r * (blockSize + blockGap);
                 const block = this.addRect(bx, by, blockSize, blockSize, "cam-jac-node node-rect");
                 block.style.opacity = 0;
-                this.elements.jacZBlocks.push({ block, opacity });
+                let mathNode = null;
+                if (isNonZero && !isFixed) {
+                    mathNode = this.addMath(`\\frac{\\partial r_{${r}}}{\\partial C_{${c}}}`, bx, by, blockSize, blockSize, "math-label");
+                    mathNode.fo.style.opacity = 0;
+                }
+                this.elements.jacZBlocks.push({ block, opacity, mathNode });
                 if (isNonZero && !isFixed) {
                     const edge = this.addPath(resX + 40, this.elements.res[r].y, bx, by + blockSize/2, "edge-flow");
                     this.elements.jacZEdges.push(edge);
@@ -149,13 +154,42 @@ class BACanvas {
                 const by = jStartY + r * (blockSize + blockGap);
                 const block = this.addRect(bx, by, blockSize, blockSize, "pt-jac-node node-rect");
                 block.style.opacity = 0;
-                this.elements.jacPBlocks.push({ block, opacity });
+                let mathNode = null;
+                if (isNonZero) {
+                    mathNode = this.addMath(`\\frac{\\partial r_{${r}}}{\\partial P_{${c}}}`, bx, by, blockSize, blockSize, "math-label");
+                    mathNode.fo.style.opacity = 0;
+                }
+                this.elements.jacPBlocks.push({ block, opacity, mathNode });
                 if (isNonZero) {
                     const edge = this.addPath(resX + 40, this.elements.res[r].y, bx, by + blockSize/2, "edge-flow");
                     this.elements.jacPEdges.push(edge);
                 }
             }
         }
+    }
+
+    addMath(content, x, y, w, h, classes) {
+        const fo = document.createElementNS(SVG_NS, "foreignObject");
+        fo.setAttribute("x", x);
+        fo.setAttribute("y", y);
+        fo.setAttribute("width", w);
+        fo.setAttribute("height", h);
+        fo.style.pointerEvents = "none";
+        fo.style.transition = "opacity 0.3s ease";
+        
+        const div = document.createElement("div");
+        div.style.width = "100%";
+        div.style.height = "100%";
+        div.style.display = "flex";
+        div.style.justifyContent = "center";
+        div.style.alignItems = "center";
+        if (classes) div.className = classes;
+        
+        katex.render(content, div, { throwOnError: false, displayMode: true });
+        
+        fo.appendChild(div);
+        this.mainGroup.appendChild(fo);
+        return { fo, div };
     }
 
     addRect(x, y, w, h, classes) {
@@ -196,14 +230,20 @@ class BACanvas {
     }
 
     reset() {
-        if (this.timeline) clearTimeout(this.timeline);
+        if (this.timeouts) {
+            this.timeouts.forEach(t => clearTimeout(t));
+        }
+        this.timeouts = [];
         this.build();
     }
 
     play() {
         this.reset();
         let t = 0;
-        const step = (fn, delay) => { t += delay; this.timeline = setTimeout(fn, t); };
+        const step = (fn, delay) => { 
+            t += delay; 
+            this.timeouts.push(setTimeout(fn, t)); 
+        };
 
         step(() => {
             this.elements.edges.forEach(e => {
@@ -241,8 +281,14 @@ class BACanvas {
         }, 800);
 
         step(() => {
-            this.elements.jacZBlocks.forEach(b => b.block.style.opacity = b.opacity);
-            this.elements.jacPBlocks.forEach(b => b.block.style.opacity = b.opacity);
+            this.elements.jacZBlocks.forEach(b => {
+                b.block.style.opacity = b.opacity;
+                if (b.mathNode) b.mathNode.fo.style.opacity = 1;
+            });
+            this.elements.jacPBlocks.forEach(b => {
+                b.block.style.opacity = b.opacity;
+                if (b.mathNode) b.mathNode.fo.style.opacity = 1;
+            });
         }, 1200);
 
         step(() => {
@@ -259,7 +305,7 @@ class PGOCanvas {
         this.svg.setAttribute("viewBox", "0 0 1000 600");
         this.container.appendChild(this.svg);
         this.elements = {};
-        this.timeline = null;
+        this.timeouts = [];
         this.build();
     }
 
@@ -286,13 +332,13 @@ class PGOCanvas {
 
         const nX = 150, nStartY = 200, nGap = 80;
         const repX1 = 350, repX2 = 450, resX = 580, rStartY = 200, rGap = 80;
-        const jX = 800, jStartY = 200;
-        const blockSize = 30, blockGap = 4;
+        const jX = 740, jStartY = 200;
+        const blockSize = 60, blockGap = 6;
 
         this.addText("Poses X", nX + 20, nStartY - 40, "title-label");
         this.addText("Replication", (repX1 + repX2) / 2 + 20, rStartY - 40, "title-label");
         this.addText("Residuals R", resX + 20, rStartY - 40, "title-label");
-        this.addText("∂R/∂X", jX + (numNodes*blockSize)/2, jStartY - 40, "title-label");
+        this.addMath("\\frac{\\partial \\mathbf{r}}{\\partial \\mathbf{X}}", jX, jStartY - 60, numNodes * (blockSize + blockGap) - blockGap, 40, "title-label");
 
         const nodes = [];
         for (let i = 0; i < numNodes; i++) {
@@ -337,13 +383,42 @@ class PGOCanvas {
                 const by = jStartY + r * (blockSize + blockGap);
                 const block = this.addRect(bx, by, blockSize, blockSize, "cam-jac-node node-rect");
                 block.style.opacity = 0;
-                this.elements.jacBlocks.push({ block, opacity });
+                let mathNode = null;
+                if (isNonZero) {
+                    mathNode = this.addMath(`\\frac{\\partial r_{${r}}}{\\partial X_{${c}}}`, bx, by, blockSize, blockSize, "math-label");
+                    mathNode.fo.style.opacity = 0;
+                }
+                this.elements.jacBlocks.push({ block, opacity, mathNode });
                 if (isNonZero) {
                     const edge = this.addPath(resX + 40, this.elements.res[r].y, bx, by + blockSize/2, "edge-flow");
                     this.elements.jacEdges.push(edge);
                 }
             }
         }
+    }
+
+    addMath(content, x, y, w, h, classes) {
+        const fo = document.createElementNS(SVG_NS, "foreignObject");
+        fo.setAttribute("x", x);
+        fo.setAttribute("y", y);
+        fo.setAttribute("width", w);
+        fo.setAttribute("height", h);
+        fo.style.pointerEvents = "none";
+        fo.style.transition = "opacity 0.3s ease";
+        
+        const div = document.createElement("div");
+        div.style.width = "100%";
+        div.style.height = "100%";
+        div.style.display = "flex";
+        div.style.justifyContent = "center";
+        div.style.alignItems = "center";
+        if (classes) div.className = classes;
+        
+        katex.render(content, div, { throwOnError: false, displayMode: true });
+        
+        fo.appendChild(div);
+        this.mainGroup.appendChild(fo);
+        return { fo, div };
     }
 
     addRect(x, y, w, h, classes) {
@@ -384,14 +459,20 @@ class PGOCanvas {
     }
 
     reset() {
-        if (this.timeline) clearTimeout(this.timeline);
+        if (this.timeouts) {
+            this.timeouts.forEach(t => clearTimeout(t));
+        }
+        this.timeouts = [];
         this.build();
     }
 
     play() {
         this.reset();
         let t = 0;
-        const step = (fn, delay) => { t += delay; this.timeline = setTimeout(fn, t); };
+        const step = (fn, delay) => { 
+            t += delay; 
+            this.timeouts.push(setTimeout(fn, t)); 
+        };
 
         step(() => {
             this.elements.edges.forEach(e => {
@@ -425,7 +506,10 @@ class PGOCanvas {
         }, 800);
 
         step(() => {
-            this.elements.jacBlocks.forEach(b => b.block.style.opacity = b.opacity);
+            this.elements.jacBlocks.forEach(b => {
+                b.block.style.opacity = b.opacity;
+                if (b.mathNode) b.mathNode.fo.style.opacity = 1;
+            });
         }, 1200);
 
         step(() => {

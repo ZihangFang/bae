@@ -197,6 +197,7 @@ svg {
     font-family: 'Inter', sans-serif;
     font-weight: 600;
     fill: var(--text-primary);
+    color: var(--text-primary);
 }
 
 .edge {
@@ -218,4 +219,11 @@ svg {
     font-family: 'JetBrains Mono', monospace;
     font-size: 14px;
     font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* KaTeX overrides for SVG foreignObject */
+.math-label .katex-display,
+.title-label .katex-display {
+    margin: 0 !important;
 }
