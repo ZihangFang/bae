@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BAE Compute Graphs Visualization</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Sparsity-aware Jacobian Construction</h1>
+            <p class="subtitle">Interactive compute graphs for Bundle Adjustment and Pose Graph Optimization.</p>
+        </header>
+
+        <div class="tabs-container">
+            <div class="tabs">
+                <button class="tab-btn active" data-target="ba-tab">Bundle Adjustment</button>
+                <button class="tab-btn" data-target="gauge-ba-tab">Gauge-fixed BA</button>
+                <button class="tab-btn" data-target="pgo-tab">Pose Graph Optimization</button>
+            </div>
+            
+            <div class="tab-content active" id="ba-tab">
+                <div class="controls">
+                    <button class="action-btn" id="play-ba">Play Animation</button>
+                    <button class="action-btn secondary" id="reset-ba">Reset</button>
+                </div>
+                <div class="viz-container" id="ba-viz">
+                    <!-- SVG will be injected/manipulated here -->
+                </div>
+            </div>
+
+            <div class="tab-content" id="gauge-ba-tab">
+                <div class="controls">
+                    <button class="action-btn" id="play-gauge">Play Animation</button>
+                    <button class="action-btn secondary" id="reset-gauge">Reset</button>
+                </div>
+                <div class="viz-container" id="gauge-viz">
+                    <!-- SVG will be injected/manipulated here -->
+                </div>
+            </div>
+
+            <div class="tab-content" id="pgo-tab">
+                <div class="controls">
+                    <button class="action-btn" id="play-pgo">Play Animation</button>
+                    <button class="action-btn secondary" id="reset-pgo">Reset</button>
+                </div>
+                <div class="viz-container" id="pgo-viz">
+                    <!-- SVG will be injected/manipulated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

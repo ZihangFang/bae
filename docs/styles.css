@@ -1,0 +1,221 @@
+:root {
+    --bg-color: #ffffff;
+    --text-primary: #1a1a1a;
+    --text-secondary: #666666;
+    --primary-color: #f75c6c; /* Soft red from the paper figures */
+    --hover-primary: #eb4758;
+    --secondary-color: #f1f5f9;
+    --border-color: #e2e8f0;
+    --tab-inactive: #94a3b8;
+    
+    --box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    
+    --cam-color: #ffb3ba;
+    --cam-border: #ff8c99;
+    --pt-color: #ffdfba;
+    --pt-border: #ffc280;
+    --cam-jac-color: #c8e6c9;
+    --cam-jac-border: #81c784;
+    --pt-jac-color: #bbdefb;
+    --pt-jac-border: #64b5f6;
+    --res-color: #fff9c4;
+    --res-border: #fff59d;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    line-height: 1.6;
+    display: flex;
+    justify-content: center;
+    padding: 2rem;
+}
+
+.container {
+    width: 100%;
+    max-width: 1200px;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+.subtitle {
+    font-size: 1.1rem;
+    color: var(--text-secondary);
+}
+
+.tabs-container {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: var(--box-shadow);
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border-color);
+    background-color: #f8fafc;
+}
+
+.tab-btn {
+    flex: 1;
+    padding: 1rem;
+    border: none;
+    background: transparent;
+    font-size: 1rem;
+    font-family: inherit;
+    font-weight: 600;
+    color: var(--tab-inactive);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-bottom: 3px solid transparent;
+}
+
+.tab-btn:hover {
+    color: var(--text-primary);
+    background-color: #f1f5f9;
+}
+
+.tab-btn.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+    background-color: #ffffff;
+}
+
+.tab-content {
+    display: none;
+    padding: 2rem;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.tab-content.active {
+    display: flex;
+}
+
+.controls {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+}
+
+.action-btn {
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.action-btn:hover {
+    background-color: var(--hover-primary);
+    transform: translateY(-1px);
+}
+
+.action-btn.secondary {
+    background-color: var(--secondary-color);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.action-btn.secondary:hover {
+    background-color: #e2e8f0;
+}
+
+.viz-container {
+    width: 100%;
+    height: 600px;
+    background-color: #fafafa;
+    border-radius: 8px;
+    border: 1px dashed #cbd5e1;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Visualization SVG Styles */
+svg {
+    width: 100%;
+    height: 100%;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.node-rect {
+    rx: 4px;
+    ry: 4px;
+    stroke-width: 2px;
+    transition: all 0.3s ease;
+}
+
+.cam-node { fill: var(--cam-color); stroke: var(--cam-border); }
+.pt-node { fill: var(--pt-color); stroke: var(--pt-border); }
+.cam-jac-node { fill: var(--cam-jac-color); stroke: var(--cam-jac-border); }
+.pt-jac-node { fill: var(--pt-jac-color); stroke: var(--pt-jac-border); }
+.res-node { fill: var(--res-color); stroke: var(--res-border); }
+
+.fixed-node {
+    opacity: 0.4;
+    stroke-dasharray: 4;
+}
+
+.label {
+    font-size: 14px;
+    text-anchor: middle;
+    dominant-baseline: central;
+    fill: var(--text-primary);
+    pointer-events: none;
+}
+
+.title-label {
+    font-size: 16px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    fill: var(--text-primary);
+}
+
+.edge {
+    fill: none;
+    stroke: #94a3b8;
+    stroke-width: 2px;
+    stroke-dasharray: 4;
+    opacity: 0.6;
+}
+
+.edge-flow {
+    fill: none;
+    stroke: var(--primary-color);
+    stroke-width: 2.5px;
+    opacity: 0;
+}
+
+.math-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+}
