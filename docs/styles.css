@@ -1,12 +1,22 @@
 :root {
-    --bg-color: #ffffff;
-    --text-primary: #1a1a1a;
-    --text-secondary: #666666;
-    --primary-color: #f75c6c; /* Soft red from the paper figures */
-    --hover-primary: #eb4758;
-    --secondary-color: #f1f5f9;
-    --border-color: #e2e8f0;
-    --tab-inactive: #94a3b8;
+    --bg-color: #f5efe5;
+    --surface-color: #fffaf4;
+    --surface-strong: #fffdf8;
+    --text-primary: #241b18;
+    --text-secondary: #75645b;
+    --primary-color: #c95f43;
+    --hover-primary: #b34d32;
+    --secondary-color: #efe4d7;
+    --border-color: #dfcfbf;
+    --tab-inactive: #9b8a7d;
+    --code-bg: #1d1f24;
+    --code-border: #3b3f48;
+    --code-text: #f8efe3;
+    --code-muted: #a89e90;
+    --code-highlight-bg: rgba(255, 196, 108, 0.17);
+    --code-highlight-border: rgba(255, 196, 108, 0.4);
+    --pill-bg: #f4dfcb;
+    --pill-text: #8b452f;
     
     --box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
     
@@ -29,8 +39,11 @@
 }
 
 body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background-color: var(--bg-color);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background:
+        radial-gradient(circle at top left, rgba(255, 209, 179, 0.38), transparent 35%),
+        radial-gradient(circle at top right, rgba(214, 225, 255, 0.45), transparent 28%),
+        linear-gradient(180deg, #f8f2ea 0%, var(--bg-color) 100%);
     color: var(--text-primary);
     line-height: 1.6;
     display: flex;
@@ -64,8 +77,9 @@ h1 {
 }
 
 .tabs-container {
-    background: #ffffff;
-    border-radius: 12px;
+    background: rgba(255, 250, 244, 0.92);
+    backdrop-filter: blur(14px);
+    border-radius: 18px;
     box-shadow: var(--box-shadow);
     border: 1px solid var(--border-color);
     overflow: hidden;
@@ -76,7 +90,7 @@ h1 {
 .tabs {
     display: flex;
     border-bottom: 1px solid var(--border-color);
-    background-color: #f8fafc;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(251, 245, 238, 0.9));
 }
 
 .tab-btn {
@@ -95,13 +109,13 @@ h1 {
 
 .tab-btn:hover {
     color: var(--text-primary);
-    background-color: #f1f5f9;
+    background-color: rgba(201, 95, 67, 0.08);
 }
 
 .tab-btn.active {
     color: var(--primary-color);
     border-bottom-color: var(--primary-color);
-    background-color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.88);
 }
 
 .tab-content {
@@ -146,17 +160,131 @@ h1 {
 }
 
 .action-btn.secondary:hover {
-    background-color: #e2e8f0;
+    background-color: #e6d8c8;
+}
+
+.experience-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.95fr);
+    gap: 1.25rem;
+    align-items: stretch;
+}
+
+.viz-shell,
+.code-panel {
+    min-width: 0;
 }
 
 .viz-container {
     width: 100%;
     height: 600px;
-    background-color: #fafafa;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(247, 241, 233, 0.95)),
+        linear-gradient(135deg, rgba(235, 71, 88, 0.05), rgba(100, 181, 246, 0.06));
     border-radius: 8px;
-    border: 1px dashed #cbd5e1;
+    border: 1px dashed #ccb9a7;
     position: relative;
     overflow: hidden;
+}
+
+.code-panel {
+    background: linear-gradient(180deg, rgba(35, 38, 43, 0.96), rgba(24, 26, 31, 0.98));
+    color: var(--code-text);
+    border: 1px solid var(--code-border);
+    border-radius: 18px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    box-shadow: 0 16px 48px rgba(31, 24, 18, 0.16);
+}
+
+.code-panel-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.panel-kicker {
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #d9b79e;
+}
+
+.panel-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    line-height: 1.25;
+    margin-top: 0.15rem;
+}
+
+.panel-title a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.panel-title a:hover {
+    color: #ffd4b8;
+}
+
+.step-pill {
+    flex-shrink: 0;
+    border-radius: 999px;
+    background: var(--pill-bg);
+    color: var(--pill-text);
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.code-caption {
+    color: #d8ccbf;
+    font-size: 0.96rem;
+    min-height: 3.2rem;
+}
+
+.code-block {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    margin: 0;
+    padding: 0.25rem 0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+
+.code-block.has-active .code-line {
+    opacity: 0.42;
+}
+
+.code-line {
+    display: grid;
+    grid-template-columns: 3rem minmax(0, 1fr);
+    gap: 0.9rem;
+    padding: 0.22rem 0.65rem;
+    border-left: 3px solid transparent;
+    transition: opacity 0.24s ease, background-color 0.24s ease, border-color 0.24s ease, transform 0.24s ease;
+}
+
+.code-line.active {
+    opacity: 1;
+    background: var(--code-highlight-bg);
+    border-left-color: var(--code-highlight-border);
+    transform: translateX(2px);
+}
+
+.code-line-no {
+    color: var(--code-muted);
+    text-align: right;
+    user-select: none;
+}
+
+.code-line-text {
+    white-space: pre;
 }
 
 /* Visualization SVG Styles */
@@ -226,4 +354,49 @@ svg {
 .math-label .katex-display,
 .title-label .katex-display {
     margin: 0 !important;
+}
+
+@media (max-width: 1080px) {
+    .experience-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .code-panel {
+        min-height: 420px;
+    }
+}
+
+@media (max-width: 720px) {
+    body {
+        padding: 1rem;
+    }
+
+    h1 {
+        font-size: 2rem;
+    }
+
+    .tab-content {
+        padding: 1.1rem;
+    }
+
+    .tabs {
+        flex-direction: column;
+    }
+
+    .controls {
+        justify-content: stretch;
+        flex-wrap: wrap;
+    }
+
+    .action-btn {
+        flex: 1;
+    }
+
+    .viz-container {
+        height: 460px;
+    }
+
+    .code-panel-header {
+        flex-direction: column;
+    }
 }
