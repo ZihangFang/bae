@@ -288,6 +288,10 @@ h1 {
     opacity: 0.48;
 }
 
+.code-block.has-active .phase-card.active {
+    opacity: 1;
+}
+
 .phase-card.active {
     opacity: 1;
     background: var(--code-highlight-bg);

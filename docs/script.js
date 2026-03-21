@@ -315,11 +315,12 @@ class CodePanel {
     setPhase(phaseKey) {
         const phase = this.definition.phases.find((candidate) => candidate.key === phaseKey);
         const current = phase || this.definition.intro;
+        const shouldDimInactiveCards = Boolean(phase && phase.key !== "complete");
         this.activePhase = phaseKey;
 
         this.stepPill.textContent = current.label;
         this.caption.textContent = current.caption;
-        this.block.classList.toggle("has-active", Boolean(phase));
+        this.block.classList.toggle("has-active", shouldDimInactiveCards);
 
         let activeNode = null;
         this.cardNodes.forEach((node, key) => {
