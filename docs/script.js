@@ -275,9 +275,14 @@ class CodePanel {
     }
 
     render() {
+        let lineNumber = 1;
         const html = this.definition.phases.map((phase) => {
             const codeHtml = phase.code
-                .map((line, index) => renderPythonLine(line, index + 1))
+                .map((line) => {
+                    const renderedLine = renderPythonLine(line, lineNumber);
+                    lineNumber += 1;
+                    return renderedLine;
+                })
                 .join("");
 
             return [
