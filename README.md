@@ -4,8 +4,6 @@
 
 `bae` is a PyTorch-based library supporting **exact** 2nd-order optimization techniques. The library provides efficient implementations for sparse optimization problems in robotics, particularly Bundle Adjustment (BA) and Pose Graph Optimization (PGO).
 
-## Visual Examples
-
 ### Bundle Adjustment
 
 <table>
