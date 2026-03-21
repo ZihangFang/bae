@@ -209,3 +209,4 @@ If you use `bae` in your research, please cite:
 The implementation draws inspiration from:
 - [PyPose](https://github.com/pypose/pypose) for SE(3) pose representations
 - GTSAM for reprojection jacobian concepts
+- Ceres for manifold parameter update
