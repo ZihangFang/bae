@@ -71,7 +71,7 @@
 
 ### Future Plan
 - [ ] An new backend for [distributed solver](https://github.com/NVIDIA/AMGX)
-- [ ] Add Apple Silicon GPU support
+- [ ] Add Apple Silicon GPU support, [PyTorch PR WIP](https://github.com/pytorch/pytorch/pull/177757)
 
 ## Installation
 
