@@ -252,36 +252,80 @@ h1 {
     overflow: auto;
     margin: 0;
     padding: 0.35rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.phase-card {
+    appearance: none;
+    width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.03);
+    color: inherit;
+    padding: 0.9rem;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.phase-card:hover {
+    transform: translateY(-1px);
+    border-color: rgba(255, 212, 184, 0.3);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.code-block.has-active .phase-card {
+    opacity: 0.48;
+}
+
+.phase-card.active {
+    opacity: 1;
+    background: var(--code-highlight-bg);
+    border-color: var(--code-highlight-border);
+    box-shadow: 0 0 0 1px rgba(255, 196, 108, 0.18);
+    transform: translateX(2px);
+}
+
+.phase-card:focus-visible {
+    outline: 2px solid rgba(255, 212, 184, 0.7);
+    outline-offset: 2px;
+}
+
+.phase-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.55rem;
+}
+
+.phase-card-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #f5d6bf;
+}
+
+.phase-card-jump {
+    font-size: 0.78rem;
+    color: #c9b7a6;
+}
+
+.phase-card-code {
+    display: flex;
+    flex-direction: column;
+    gap: 0.18rem;
     font-family: "JetBrains Mono", monospace;
     font-size: 0.93rem;
     line-height: 1.6;
 }
 
-.code-block.has-active .code-line {
-    opacity: 0.42;
-}
-
-.code-line {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0;
-    padding: 0.28rem 0.85rem;
-    border-left: 3px solid transparent;
-    transition: opacity 0.24s ease, background-color 0.24s ease, border-color 0.24s ease, transform 0.24s ease;
-}
-
-.code-line.active {
-    opacity: 1;
-    background: var(--code-highlight-bg);
-    border-left-color: var(--code-highlight-border);
-    transform: translateX(2px);
-}
-
-.code-line-no {
-    display: none;
-}
-
-.code-line-text {
+.phase-card-line {
+    display: block;
     white-space: pre;
 }
 

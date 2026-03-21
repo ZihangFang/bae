@@ -19,139 +19,168 @@ function escapeHtml(text) {
 
 const CODE_SNIPPETS = {
     ba: {
-        lines: [
-            { number: 1, text: "# each observation picks one camera and one landmark" },
-            { number: 2, text: "input = {" },
-            { number: 3, text: "    \"camera_indices\": trimmed_dataset['camera_index_of_observations']," },
-            { number: 4, text: "    \"point_indices\": trimmed_dataset['point_index_of_observations']," },
-            { number: 5, text: "}" },
-            { number: 6, text: "model = Reproj(camera_params, points_3d)" },
-            { number: 7, text: "residual = model(points_2d, input[\"camera_indices\"], input[\"point_indices\"])" },
-            { number: 8, text: "loss = optimizer.step(input)  # builds the sparse Jacobian" },
-        ],
-        phases: {
-            idle: {
-                label: "Ready",
-                caption: "A distilled BA code path appears here so readers can match the animation to the idea in a few seconds.",
-                lines: [],
-            },
-            inputs: {
+        intro: {
+            label: "Ready",
+            caption: "Each card matches one stage in the animation. Click any card to jump straight to that step.",
+        },
+        phases: [
+            {
+                key: "inputs",
                 label: "Inputs",
                 caption: "Observation indices decide which camera block and which landmark block each residual will touch.",
-                lines: [2, 3, 4, 5],
+                code: [
+                    "input = {",
+                    "    \"camera_indices\": obs_to_camera,",
+                    "    \"point_indices\": obs_to_point,",
+                    "}",
+                ],
             },
-            replication: {
+            {
+                key: "replication",
                 label: "Replication",
-                caption: "The replication stage is just those index arrays being used over and over across observations.",
-                lines: [3, 4],
+                caption: "The replication stage is just those indices being used to gather the active camera and landmark blocks.",
+                code: [
+                    "camera = camera_params[input[\"camera_indices\"]]",
+                    "point = points_3d[input[\"point_indices\"]]",
+                ],
             },
-            residuals: {
+            {
+                key: "residuals",
                 label: "Residuals",
-                caption: "The selected camera-landmark pair produces one reprojection residual.",
-                lines: [6, 7],
+                caption: "Each gathered camera-landmark pair produces one reprojection residual.",
+                code: [
+                    "model = Reproj(camera_params, points_3d)",
+                    "residual = model(points_2d, input[\"camera_indices\"], input[\"point_indices\"])",
+                ],
             },
-            jacobian: {
+            {
+                key: "jacobian",
                 label: "Jacobian",
                 caption: "Inside the optimizer step, that residual graph is differentiated into sparse Jacobian blocks.",
-                lines: [8],
+                code: [
+                    "loss = optimizer.step(input)",
+                    "# sparse Jacobian is assembled here",
+                ],
             },
-            complete: {
+            {
+                key: "complete",
                 label: "Solve",
-                caption: "Once the Jacobian is built, the solver step runs and the pattern repeats on the next iteration.",
-                lines: [8],
+                caption: "After the Jacobian is built, the sparse solve runs and the pattern repeats on the next iteration.",
+                code: [
+                    "for _ in range(num_steps):",
+                    "    loss = optimizer.step(input)",
+                ],
             },
-        },
+        ],
     },
     gauge: {
-        lines: [
-            { number: 1, text: "# fix the first camera so its Jacobian block disappears" },
-            { number: 2, text: "camera_fixed = camera_se3[:1].clone()" },
-            { number: 3, text: "camera_se3 = torch.cat([camera_fixed, self.pose_rest], dim=0)" },
-            { number: 4, text: "residual = project_with_se3_and_intrinsics(" },
-            { number: 5, text: "    self.points_3d[point_indices], camera_se3[camera_indices], self.intrinsics[camera_indices]" },
-            { number: 6, text: ") - points_2d" },
-            { number: 7, text: "J_cam_rest, J_intr, J_pts = autograd_graph.jacobian(" },
-            { number: 8, text: "    residual, [model.pose_rest, model.intrinsics, model.points_3d]" },
-            { number: 9, text: ")" },
-            { number: 10, text: "expected_cam_cols = camera_idx[camera_idx > 0] - 1" },
-        ],
-        phases: {
-            idle: {
-                label: "Ready",
-                caption: "This version strips the gauge-fixing story down to the few lines that matter for the Jacobian structure.",
-                lines: [],
-            },
-            inputs: {
+        intro: {
+            label: "Ready",
+            caption: "Gauge-fixed BA uses the same clickable step cards, but one camera is held fixed so its Jacobian column block disappears.",
+        },
+        phases: [
+            {
+                key: "inputs",
                 label: "Fixed Gauge",
                 caption: "The first camera is split out and held fixed before optimization starts.",
-                lines: [1, 2],
+                code: [
+                    "camera_fixed = camera_se3[:1].clone()",
+                    "camera_trainable = camera_se3[1:]",
+                ],
             },
-            replication: {
+            {
+                key: "replication",
                 label: "Replication",
                 caption: "The fixed camera is concatenated back only for lookup; the trainable camera state is still just pose_rest.",
-                lines: [3],
+                code: [
+                    "camera_all = torch.cat([camera_fixed, self.pose_rest], dim=0)",
+                ],
             },
-            residuals: {
+            {
+                key: "residuals",
                 label: "Residuals",
                 caption: "Residuals still come from the selected point, selected camera pose, and selected intrinsics.",
-                lines: [4, 5, 6],
+                code: [
+                    "residual = project_with_se3_and_intrinsics(",
+                    "    self.points_3d[point_indices],",
+                    "    camera_all[camera_indices],",
+                    "    self.intrinsics[camera_indices],",
+                    ") - points_2d",
+                ],
             },
-            jacobian: {
+            {
+                key: "jacobian",
                 label: "Jacobian",
                 caption: "The Jacobian is taken only with respect to the unfixed camera poses, intrinsics, and landmarks.",
-                lines: [7, 8, 9],
+                code: [
+                    "J_cam_rest, J_intr, J_pts = autograd_graph.jacobian(",
+                    "    residual, [model.pose_rest, model.intrinsics, model.points_3d]",
+                    ")",
+                ],
             },
-            complete: {
+            {
+                key: "complete",
                 label: "Gauge-Free",
                 caption: "That is why the camera columns are reindexed to skip camera 0.",
-                lines: [10],
+                code: [
+                    "expected_cam_cols = camera_idx[camera_idx > 0] - 1",
+                ],
             },
-        },
+        ],
     },
     pgo: {
-        lines: [
-            { number: 1, text: "@map_transform" },
-            { number: 2, text: "def _tracked_pose_graph_residual(poses, node1, node2, infos):" },
-            { number: 3, text: "    residual = (pp.SE3(poses).Inv() @ pp.SE3(node1).Inv() @ pp.SE3(node2)).Log().tensor()" },
-            { number: 4, text: "    return (infos @ residual[..., None])[..., 0]" },
-            { number: 5, text: "input = {\"edges\": edges, \"poses\": poses, \"infos\": infos}" },
-            { number: 6, text: "node1 = self.nodes[edges[..., 0]]" },
-            { number: 7, text: "node2 = self.nodes[edges[..., 1]]" },
-            { number: 8, text: "residual = _tracked_pose_graph_residual(poses, node1, node2, infos)" },
-            { number: 9, text: "loss = optimizer.step(input=input, weight=infos)" },
-        ],
-        phases: {
-            idle: {
-                label: "Ready",
-                caption: "The PGO tab now shows only the core residual path, so the compute graph reads almost left-to-right with the animation.",
-                lines: [],
-            },
-            inputs: {
+        intro: {
+            label: "Ready",
+            caption: "The PGO tab keeps the same clickable structure so readers can hop between edge selection, residual construction, and the solve.",
+        },
+        phases: [
+            {
+                key: "inputs",
                 label: "Inputs",
                 caption: "The input is just edge connectivity, relative poses, and information weights.",
-                lines: [5],
+                code: [
+                    "input = {\"edges\": edges, \"poses\": poses, \"infos\": infos}",
+                ],
             },
-            replication: {
+            {
+                key: "replication",
                 label: "Replication",
                 caption: "Each edge selects the two pose blocks it connects.",
-                lines: [6, 7],
+                code: [
+                    "node1 = self.nodes[edges[..., 0]]",
+                    "node2 = self.nodes[edges[..., 1]]",
+                ],
             },
-            residuals: {
+            {
+                key: "residuals",
                 label: "Residuals",
                 caption: "Those two selected poses and the measurement produce one weighted SE(3) residual.",
-                lines: [1, 2, 3, 4, 8],
+                code: [
+                    "@map_transform",
+                    "def _tracked_pose_graph_residual(poses, node1, node2, infos):",
+                    "    residual = (pp.SE3(poses).Inv() @ pp.SE3(node1).Inv() @ pp.SE3(node2)).Log().tensor()",
+                    "    return (infos @ residual[..., None])[..., 0]",
+                ],
             },
-            jacobian: {
+            {
+                key: "jacobian",
                 label: "Jacobian",
                 caption: "The optimizer differentiates that residual graph into sparse Jacobian blocks.",
-                lines: [9],
+                code: [
+                    "residual = _tracked_pose_graph_residual(poses, node1, node2, infos)",
+                    "loss = optimizer.step(input=input, weight=infos)",
+                ],
             },
-            complete: {
+            {
+                key: "complete",
                 label: "Solve",
                 caption: "Then the sparse solve runs and the same pattern repeats for the next iteration.",
-                lines: [9],
+                code: [
+                    "for _ in range(num_steps):",
+                    "    loss = optimizer.step(input=input, weight=infos)",
+                ],
             },
-        },
+        ],
     },
 };
 
@@ -162,51 +191,71 @@ class CodePanel {
         this.block = document.getElementById(`${sceneKey}-code-block`);
         this.caption = document.getElementById(`${sceneKey}-code-caption`);
         this.stepPill = document.getElementById(`${sceneKey}-step-pill`);
-        this.lineNodes = new Map();
+        this.cardNodes = new Map();
         this.activePhase = "idle";
+        this.phaseSelectHandler = null;
         this.render();
         this.setPhase("idle");
     }
 
     render() {
-        const html = this.definition.lines.map(({ number, text }) => {
+        const html = this.definition.phases.map((phase) => {
+            const codeHtml = phase.code
+                .map((line) => `<span class="phase-card-line">${escapeHtml(line)}</span>`)
+                .join("");
+
             return [
-                `<div class="code-line" data-line="${number}">`,
-                `<span class="code-line-no">${number}</span>`,
-                `<span class="code-line-text">${escapeHtml(text)}</span>`,
-                "</div>",
+                `<button class="phase-card" type="button" data-phase="${phase.key}">`,
+                `<span class="phase-card-top">`,
+                `<span class="phase-card-label">${phase.label}</span>`,
+                `<span class="phase-card-jump">Jump</span>`,
+                `</span>`,
+                `<span class="phase-card-code">${codeHtml}</span>`,
+                `</button>`,
             ].join("");
         }).join("");
 
         this.block.innerHTML = html;
-        this.lineNodes = new Map(
-            this.definition.lines.map(({ number }) => [
-                number,
-                this.block.querySelector(`.code-line[data-line="${number}"]`),
+        this.cardNodes = new Map(
+            this.definition.phases.map((phase) => [
+                phase.key,
+                this.block.querySelector(`.phase-card[data-phase="${phase.key}"]`),
             ]),
         );
+
+        this.cardNodes.forEach((node, phaseKey) => {
+            node.addEventListener("click", () => {
+                if (this.phaseSelectHandler) {
+                    this.phaseSelectHandler(phaseKey);
+                }
+            });
+        });
+    }
+
+    setPhaseSelectHandler(handler) {
+        this.phaseSelectHandler = handler;
     }
 
     setPhase(phaseKey) {
-        const phase = this.definition.phases[phaseKey] || this.definition.phases.idle;
-        const activeLines = new Set(phase.lines);
+        const phase = this.definition.phases.find((candidate) => candidate.key === phaseKey);
+        const current = phase || this.definition.intro;
         this.activePhase = phaseKey;
 
-        this.stepPill.textContent = phase.label;
-        this.caption.textContent = phase.caption;
-        this.block.classList.toggle("has-active", activeLines.size > 0);
+        this.stepPill.textContent = current.label;
+        this.caption.textContent = current.caption;
+        this.block.classList.toggle("has-active", Boolean(phase));
 
-        let firstActiveNode = null;
-        this.lineNodes.forEach((node, lineNumber) => {
-            const isActive = activeLines.has(lineNumber);
+        let activeNode = null;
+        this.cardNodes.forEach((node, key) => {
+            const isActive = key === phaseKey;
             node.classList.toggle("active", isActive);
-            if (isActive && firstActiveNode === null) {
-                firstActiveNode = node;
+            if (isActive) {
+                activeNode = node;
             }
         });
 
-        if (firstActiveNode) {
-            firstActiveNode.scrollIntoView({ block: "nearest" });
+        if (activeNode) {
+            activeNode.scrollIntoView({ block: "nearest" });
         } else {
             this.block.scrollTop = 0;
         }
@@ -227,6 +276,7 @@ class BaseCanvas {
         this.elements = {};
         this.timeouts = [];
         this.codePanel = new CodePanel(sceneKey);
+        this.codePanel.setPhaseSelectHandler((phaseKey) => this.seekToPhase(phaseKey));
     }
 
     addMath(content, x, y, width, height, classes) {
@@ -300,6 +350,23 @@ class BaseCanvas {
         this.timeouts = [];
         this.build();
         this.codePanel.reset();
+    }
+
+    getPhaseOrder() {
+        return [];
+    }
+
+    seekToPhase(phaseKey) {
+        const phaseOrder = this.getPhaseOrder();
+        const targetIndex = phaseOrder.indexOf(phaseKey);
+        this.reset();
+        if (targetIndex === -1) {
+            return;
+        }
+        for (let index = 0; index <= targetIndex; index += 1) {
+            this.applyPhase(phaseOrder[index]);
+        }
+        this.codePanel.setPhase(phaseKey);
     }
 }
 
@@ -458,26 +525,20 @@ class BACanvas extends BaseCanvas {
         }
     }
 
-    play() {
-        this.reset();
-        let elapsed = 0;
-        const queueStep = (phase, delay, callback) => {
-            elapsed += delay;
-            this.timeouts.push(setTimeout(() => {
-                this.codePanel.setPhase(phase);
-                callback();
-            }, elapsed));
-        };
+    getPhaseOrder() {
+        return ["inputs", "replication", "residuals", "jacobian", "complete"];
+    }
 
-        queueStep("inputs", 100, () => {
+    applyPhase(phaseKey) {
+        switch (phaseKey) {
+        case "inputs":
             this.elements.edges.forEach((edge) => {
                 edge.style.opacity = "0.8";
                 edge.style.transition = "stroke-dashoffset 1s ease-in-out";
                 edge.style.strokeDashoffset = "0";
             });
-        });
-
-        queueStep("replication", 1200, () => {
+            break;
+        case "replication":
             this.elements.repZ.forEach((node) => {
                 node.rect.style.opacity = node.rect.classList.contains("fixed-node") ? "0.4" : "1";
                 node.text.style.opacity = "1";
@@ -492,24 +553,21 @@ class BACanvas extends BaseCanvas {
             this.elements.edges.forEach((edge) => {
                 edge.style.opacity = "0";
             });
-        });
-
-        queueStep("residuals", 800, () => {
+            break;
+        case "residuals":
             this.elements.res.forEach((node) => {
                 node.rect.style.opacity = "1";
                 node.text.style.opacity = "1";
             });
-        });
-
-        queueStep("jacobian", 800, () => {
+            break;
+        case "jacobian":
             [...this.elements.jacZEdges, ...this.elements.jacPEdges].forEach((edge) => {
                 edge.style.opacity = "0.8";
                 edge.style.transition = "stroke-dashoffset 1s ease-in-out";
                 edge.style.strokeDashoffset = "0";
             });
-        });
-
-        queueStep("complete", 1200, () => {
+            break;
+        case "complete":
             this.elements.jacZBlocks.forEach((entry) => {
                 entry.block.style.opacity = entry.opacity;
                 if (entry.mathNode) {
@@ -522,12 +580,32 @@ class BACanvas extends BaseCanvas {
                     setMathNodeVisibility(entry.mathNode, true);
                 }
             });
-        });
-
-        queueStep("complete", 800, () => {
             [...this.elements.jacZEdges, ...this.elements.jacPEdges].forEach((edge) => {
                 edge.style.opacity = "0";
             });
+            break;
+        default:
+            break;
+        }
+    }
+
+    play() {
+        this.reset();
+        let elapsed = 0;
+        const timeline = [
+            { key: "inputs", delay: 100 },
+            { key: "replication", delay: 1200 },
+            { key: "residuals", delay: 800 },
+            { key: "jacobian", delay: 800 },
+            { key: "complete", delay: 1200 },
+        ];
+
+        timeline.forEach((step) => {
+            elapsed += step.delay;
+            this.timeouts.push(setTimeout(() => {
+                this.applyPhase(step.key);
+                this.codePanel.setPhase(step.key);
+            }, elapsed));
         });
     }
 }
@@ -644,26 +722,20 @@ class PGOCanvas extends BaseCanvas {
         }
     }
 
-    play() {
-        this.reset();
-        let elapsed = 0;
-        const queueStep = (phase, delay, callback) => {
-            elapsed += delay;
-            this.timeouts.push(setTimeout(() => {
-                this.codePanel.setPhase(phase);
-                callback();
-            }, elapsed));
-        };
+    getPhaseOrder() {
+        return ["inputs", "replication", "residuals", "jacobian", "complete"];
+    }
 
-        queueStep("inputs", 100, () => {
+    applyPhase(phaseKey) {
+        switch (phaseKey) {
+        case "inputs":
             this.elements.edges.forEach((edge) => {
                 edge.style.opacity = "0.8";
                 edge.style.transition = "stroke-dashoffset 1s ease-in-out";
                 edge.style.strokeDashoffset = "0";
             });
-        });
-
-        queueStep("replication", 1200, () => {
+            break;
+        case "replication":
             this.elements.repNodes.forEach((node) => {
                 node.rect.style.opacity = "1";
                 node.text.style.opacity = "1";
@@ -674,36 +746,53 @@ class PGOCanvas extends BaseCanvas {
             this.elements.edges.forEach((edge) => {
                 edge.style.opacity = "0";
             });
-        });
-
-        queueStep("residuals", 800, () => {
+            break;
+        case "residuals":
             this.elements.res.forEach((node) => {
                 node.rect.style.opacity = "1";
                 node.text.style.opacity = "1";
             });
-        });
-
-        queueStep("jacobian", 800, () => {
+            break;
+        case "jacobian":
             this.elements.jacEdges.forEach((edge) => {
                 edge.style.opacity = "0.8";
                 edge.style.transition = "stroke-dashoffset 1s ease-in-out";
                 edge.style.strokeDashoffset = "0";
             });
-        });
-
-        queueStep("complete", 1200, () => {
+            break;
+        case "complete":
             this.elements.jacBlocks.forEach((entry) => {
                 entry.block.style.opacity = entry.opacity;
                 if (entry.mathNode) {
                     setMathNodeVisibility(entry.mathNode, true);
                 }
             });
-        });
-
-        queueStep("complete", 800, () => {
             this.elements.jacEdges.forEach((edge) => {
                 edge.style.opacity = "0";
             });
+            break;
+        default:
+            break;
+        }
+    }
+
+    play() {
+        this.reset();
+        let elapsed = 0;
+        const timeline = [
+            { key: "inputs", delay: 100 },
+            { key: "replication", delay: 1200 },
+            { key: "residuals", delay: 800 },
+            { key: "jacobian", delay: 800 },
+            { key: "complete", delay: 1200 },
+        ];
+
+        timeline.forEach((step) => {
+            elapsed += step.delay;
+            this.timeouts.push(setTimeout(() => {
+                this.applyPhase(step.key);
+                this.codePanel.setPhase(step.key);
+            }, elapsed));
         });
     }
 }
