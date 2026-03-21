@@ -1,5 +1,15 @@
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+function setMathNodeVisibility(mathNode, isVisible) {
+    const opacity = isVisible ? '1' : '0';
+    const visibility = isVisible ? 'visible' : 'hidden';
+
+    mathNode.fo.style.opacity = opacity;
+    mathNode.fo.style.visibility = visibility;
+    mathNode.div.style.opacity = opacity;
+    mathNode.div.style.visibility = visibility;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const tabBtns = document.querySelectorAll('.tab-btn');
     const tabContents = document.querySelectorAll('.tab-content');
@@ -142,7 +152,7 @@ class BACanvas {
                 let mathNode = null;
                 if (isNonZero && !isFixed) {
                     mathNode = this.addMath(`\\frac{\\partial r_{${r}}}{\\partial C_{${c}}}`, bx, by, blockSize, blockSize, "math-label");
-                    mathNode.fo.style.opacity = '0';
+                    setMathNodeVisibility(mathNode, false);
                 }
                 this.elements.jacZBlocks.push({ block, opacity, mathNode });
                 if (isNonZero && !isFixed) {
@@ -163,7 +173,7 @@ class BACanvas {
                 let mathNode = null;
                 if (isNonZero) {
                     mathNode = this.addMath(`\\frac{\\partial r_{${r}}}{\\partial P_{${c}}}`, bx, by, blockSize, blockSize, "math-label");
-                    mathNode.fo.style.opacity = '0';
+                    setMathNodeVisibility(mathNode, false);
                 }
                 this.elements.jacPBlocks.push({ block, opacity, mathNode });
                 if (isNonZero) {
@@ -182,6 +192,7 @@ class BACanvas {
         fo.setAttribute("height", h);
         fo.style.pointerEvents = "none";
         fo.style.transition = "opacity 0.3s ease";
+        fo.style.visibility = "visible";
         
         const div = document.createElement("div");
         div.style.width = "100%";
@@ -189,6 +200,8 @@ class BACanvas {
         div.style.display = "flex";
         div.style.justifyContent = "center";
         div.style.alignItems = "center";
+        div.style.opacity = "1";
+        div.style.visibility = "visible";
         if (classes) div.className = classes;
         
         katex.render(content, div, { throwOnError: false, displayMode: true });
@@ -290,11 +303,11 @@ class BACanvas {
         step(() => {
             this.elements.jacZBlocks.forEach(b => {
                 b.block.style.opacity = b.opacity;
-                if (b.mathNode) b.mathNode.fo.style.opacity = '1';
+                if (b.mathNode) setMathNodeVisibility(b.mathNode, true);
             });
             this.elements.jacPBlocks.forEach(b => {
                 b.block.style.opacity = b.opacity;
-                if (b.mathNode) b.mathNode.fo.style.opacity = '1';
+                if (b.mathNode) setMathNodeVisibility(b.mathNode, true);
             });
         }, 1200);
 
@@ -399,7 +412,7 @@ class PGOCanvas {
                 let mathNode = null;
                 if (isNonZero) {
                     mathNode = this.addMath(`\\frac{\\partial r_{${r}}}{\\partial X_{${c}}}`, bx, by, blockSize, blockSize, "math-label");
-                    mathNode.fo.style.opacity = '0';
+                    setMathNodeVisibility(mathNode, false);
                 }
                 this.elements.jacBlocks.push({ block, opacity, mathNode });
                 if (isNonZero) {
@@ -418,6 +431,7 @@ class PGOCanvas {
         fo.setAttribute("height", h);
         fo.style.pointerEvents = "none";
         fo.style.transition = "opacity 0.3s ease";
+        fo.style.visibility = "visible";
         
         const div = document.createElement("div");
         div.style.width = "100%";
@@ -425,6 +439,8 @@ class PGOCanvas {
         div.style.display = "flex";
         div.style.justifyContent = "center";
         div.style.alignItems = "center";
+        div.style.opacity = "1";
+        div.style.visibility = "visible";
         if (classes) div.className = classes;
         
         katex.render(content, div, { throwOnError: false, displayMode: true });
@@ -522,7 +538,7 @@ class PGOCanvas {
         step(() => {
             this.elements.jacBlocks.forEach(b => {
                 b.block.style.opacity = b.opacity;
-                if (b.mathNode) b.mathNode.fo.style.opacity = '1';
+                if (b.mathNode) setMathNodeVisibility(b.mathNode, true);
             });
         }, 1200);
 
