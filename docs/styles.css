@@ -251,10 +251,10 @@ h1 {
     min-height: 0;
     overflow: auto;
     margin: 0;
-    padding: 0.25rem 0;
+    padding: 0.35rem 0;
     font-family: "JetBrains Mono", monospace;
-    font-size: 0.88rem;
-    line-height: 1.5;
+    font-size: 0.93rem;
+    line-height: 1.6;
 }
 
 .code-block.has-active .code-line {
@@ -263,9 +263,9 @@ h1 {
 
 .code-line {
     display: grid;
-    grid-template-columns: 3rem minmax(0, 1fr);
-    gap: 0.9rem;
-    padding: 0.22rem 0.65rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding: 0.28rem 0.85rem;
     border-left: 3px solid transparent;
     transition: opacity 0.24s ease, background-color 0.24s ease, border-color 0.24s ease, transform 0.24s ease;
 }
@@ -278,9 +278,7 @@ h1 {
 }
 
 .code-line-no {
-    color: var(--code-muted);
-    text-align: right;
-    user-select: none;
+    display: none;
 }
 
 .code-line-text {
