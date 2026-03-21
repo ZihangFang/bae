@@ -17,6 +17,82 @@ function escapeHtml(text) {
         .replace(/>/g, "&gt;");
 }
 
+function splitInlineComment(line) {
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+    let escaped = false;
+
+    for (let index = 0; index < line.length; index += 1) {
+        const char = line[index];
+
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+
+        if (char === "\\") {
+            escaped = true;
+            continue;
+        }
+
+        if (char === "'" && !inDoubleQuote) {
+            inSingleQuote = !inSingleQuote;
+            continue;
+        }
+
+        if (char === "\"" && !inSingleQuote) {
+            inDoubleQuote = !inDoubleQuote;
+            continue;
+        }
+
+        if (char === "#" && !inSingleQuote && !inDoubleQuote) {
+            return [line.slice(0, index), line.slice(index)];
+        }
+    }
+
+    return [line, ""];
+}
+
+function highlightPythonCode(code) {
+    const strings = [];
+    const withPlaceholders = code.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, (match) => {
+        const placeholder = `__PY_STRING_${strings.length}__`;
+        strings.push(match);
+        return placeholder;
+    });
+
+    let html = escapeHtml(withPlaceholders);
+    html = html.replace(/(^|\s)(@[A-Za-z_][A-Za-z0-9_]*)/g, (match, prefix, decorator) => {
+        return `${prefix}<span class="token-decorator">${decorator}</span>`;
+    });
+    html = html.replace(/\b(def|for|in|return)\b/g, `<span class="token-keyword">$1</span>`);
+    html = html.replace(/\b([A-Za-z_][A-Za-z0-9_]*)\b(?=\()/g, `<span class="token-function">$1</span>`);
+
+    strings.forEach((value, index) => {
+        html = html.replace(`__PY_STRING_${index}__`, `<span class="token-string">${escapeHtml(value)}</span>`);
+    });
+
+    return html;
+}
+
+function renderPythonLine(line, lineNumber) {
+    const [codePart, commentPart] = splitInlineComment(line);
+    let codeHtml = highlightPythonCode(codePart);
+    if (commentPart) {
+        codeHtml += `<span class="token-comment">${escapeHtml(commentPart)}</span>`;
+    }
+    if (!codeHtml) {
+        codeHtml = "&nbsp;";
+    }
+
+    return [
+        `<span class="phase-card-line">`,
+        `<span class="phase-card-line-no">${lineNumber}</span>`,
+        `<span class="phase-card-line-code">${codeHtml}</span>`,
+        `</span>`,
+    ].join("");
+}
+
 const CODE_SNIPPETS = {
     ba: {
         intro: {
@@ -201,7 +277,7 @@ class CodePanel {
     render() {
         const html = this.definition.phases.map((phase) => {
             const codeHtml = phase.code
-                .map((line) => `<span class="phase-card-line">${escapeHtml(line)}</span>`)
+                .map((line, index) => renderPythonLine(line, index + 1))
                 .join("");
 
             return [
