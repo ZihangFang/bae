@@ -4,6 +4,58 @@
 
 `bae` is a PyTorch-based library supporting **exact** 2nd-order optimization techniques. The library provides efficient implementations for sparse optimization problems in robotics, particularly Bundle Adjustment (BA) and Pose Graph Optimization (PGO).
 
+## Visual Examples
+
+### Bundle Adjustment
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <p align="center" width="100%">
+        <img src="https://github.com/sair-lab/bae/blob/gh-page/docs/assets/garden_half.gif?raw=true" alt="Garden bundle adjustment example" width="100%" />
+      </p>
+    </td>
+    <td align="center" width="33%">
+      <p align="center" width="100%">
+        <img src="https://github.com/sair-lab/bae/blob/gh-page/docs/assets/counter_half.gif?raw=true" alt="Counter bundle adjustment example" width="100%" />
+      </p>
+    </td>
+    <td align="center" width="33%">
+      <p align="center" width="100%">
+        <img src="https://github.com/sair-lab/bae/blob/gh-page/docs/assets/kitchen_half.gif?raw=true" alt="Kitchen bundle adjustment example" width="100%" />
+      </p>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">Garden</td>
+    <td align="center">Counter</td>
+    <td align="center">Kitchen</td>
+  </tr>
+</table>
+
+<p align="center"><sub><code>bae</code> powering BA and global positioning in downstream system, <a href="https://github.com/cre185/InstantSfM">InstantSfM</a>.</sub></p>
+
+### Pose Graph Optimization
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="https://github.com/sair-lab/bae/blob/gh-page/docs/assets/sphere_bignoise_vertex3.gif?raw=true" alt="Sphere big-noise optimization" width="100%" />
+    </td>
+    <td align="center" width="33%">
+      <img src="https://github.com/sair-lab/bae/blob/gh-page/docs/assets/grid3D.gif?raw=true" alt="3D grid optimization" width="100%" />
+    </td>
+    <td align="center" width="33%">
+      <img src="https://github.com/sair-lab/bae/blob/gh-page/docs/assets/sphere_g2o.gif?raw=true" alt="Sphere g2o optimization" width="100%" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center">Sphere Big Noise</td>
+    <td align="center">Grid3D</td>
+    <td align="center">Sphere (g2o)</td>
+  </tr>
+</table>
+
 ## News
 
 - 2025-12-12: Added a VGGT integration example.
