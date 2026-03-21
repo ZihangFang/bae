@@ -455,6 +455,18 @@ svg {
     margin: 0 !important;
 }
 
+@supports (corner-shape: squircle) {
+    .tabs-container,
+    .viz-container,
+    .code-panel,
+    .phase-card,
+    .phase-card-code,
+    .step-pill,
+    .action-btn {
+        corner-shape: squircle;
+    }
+}
+
 @media (max-width: 1080px) {
     .experience-grid {
         grid-template-columns: 1fr;
