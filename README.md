@@ -1,4 +1,8 @@
-# `bae`: Bundle Adjustment in the Eager-mode
+<h1 align="center"><code>bae</code>: Bundle Adjustment in the Eager-mode</h1>
+
+<p align="center">
+  <a href="https://github.com/zitongzhan">Zitong Zhan</a>, <a href="https://www.linkedin.com/in/huan-xu-999700169/?locale=en_US">Huan Xu</a>, Zihang Fang, <a href="https://www.linkedin.com/in/william-xp-wei/">Xinpeng Wei</a>, <a href="https://theairlab.org/team/yaoyuh/">Yaoyu Hu</a>, and <a href="https://sairlab.org">Chen Wang</a>
+</p>
 
 > **⚠️ Development Phase Notice**: This library is currently in active development. APIs are subject to change and should be considered experimental. Use at your own discretion in production environments.
 
