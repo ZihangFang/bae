@@ -4,13 +4,77 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BAE Compute Graphs Visualization</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="container">
+        <section class="intro-hero" aria-labelledby="intro-title">
+            <div class="intro-shell">
+                <div class="intro-copy">
+                    <p class="section-kicker">Bundle Adjustment In The Eager Mode</p>
+                    <h2 class="intro-title" id="intro-title"><span class="intro-title-nowrap">Sparse 2<sup>nd</sup> order</span> optimization that feels native to <span class="intro-title-brand"><img class="intro-title-logo" src="https://upload.wikimedia.org/wikipedia/commons/c/c6/PyTorch_logo_black.svg" alt="PyTorch"></span></h2>
+                    <p class="subtitle intro-subtitle">
+                        BAE brings bundle adjustment and pose graph optimization into eager-mode PyTorch with
+                        sparsity-aware autodiff and GPU-accelerated sparse linear algebra, so research code stays
+                        debuggable, composable, and fast as scenes grow.
+                    </p>
+                    <div class="intro-chip-row" aria-label="Key proof points">
+                        <span class="intro-chip">PyTorch-native eager mode</span>
+                        <span class="intro-chip">Sparsity-aware autodiff</span>
+                        <span class="intro-chip">GPU sparse linear algebra</span>
+                        <span class="intro-chip">Flexible compute graphs beyond BA &amp; PGO</span>
+                    </div>
+                    <div class="intro-actions">
+                        <a class="action-btn intro-link" href="https://arxiv.org/abs/2409.12190" target="_blank" rel="noreferrer">
+                            <svg class="intro-link-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M7 3.75h6.5L18.25 8.5V19A1.25 1.25 0 0 1 17 20.25H7A1.25 1.25 0 0 1 5.75 19V5A1.25 1.25 0 0 1 7 3.75Z" fill="currentColor" opacity="0.18"></path>
+                                <path d="M13.5 3.75V8.5h4.75" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path>
+                                <path d="M13.5 3.75H7A1.25 1.25 0 0 0 5.75 5V19A1.25 1.25 0 0 0 7 20.25h10A1.25 1.25 0 0 0 18.25 19V8.5L13.5 3.75Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path>
+                                <path d="M8.75 15.25h6.5M8.75 12.25h4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+                            </svg>
+                            <span>Read Paper</span>
+                        </a>
+                        <a class="action-btn secondary intro-link" href="https://github.com/sair-lab/bae" target="_blank" rel="noreferrer">
+                            <svg class="intro-link-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M12 2.25a9.75 9.75 0 0 0-3.08 19c.49.09.67-.21.67-.48v-1.86c-2.73.59-3.3-1.16-3.3-1.16-.44-1.1-1.08-1.39-1.08-1.39-.88-.6.07-.59.07-.59.98.07 1.49 1 1.49 1 .86 1.49 2.27 1.06 2.83.81.09-.64.34-1.06.61-1.3-2.18-.25-4.48-1.08-4.48-4.84 0-1.07.38-1.94 1-2.62-.1-.25-.43-1.26.1-2.63 0 0 .82-.26 2.68 1a9.4 9.4 0 0 1 4.88 0c1.86-1.26 2.68-1 2.68-1 .53 1.37.2 2.38.1 2.63.62.68 1 1.55 1 2.62 0 3.76-2.31 4.58-4.51 4.83.35.31.67.9.67 1.81v2.69c0 .27.18.58.68.48A9.75 9.75 0 0 0 12 2.25Z" fill="currentColor"></path>
+                            </svg>
+                            <span>Codebase</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="intro-highlights" aria-label="Core product highlights">
+                <article class="intro-highlight-card">
+                    <p class="intro-highlight-label">Why it exists</p>
+                    <h3>Build sparse BA with normal Python control flow</h3>
+                    <p>
+                        The paper frames BAE around eager execution: researchers can prototype, debug, and adapt
+                        optimization code in the same interactive style that made PyTorch popular.
+                    </p>
+                </article>
+                <article class="intro-highlight-card">
+                    <p class="intro-highlight-label">What is new</p>
+                    <h3>Sparsity-aware autodiff and GPU sparse linear algebra</h3>
+                    <p>
+                        BAE combines sparse-Jacobian-aware autodiff with GPU sparse linear algebra so second-order
+                        optimization stays both flexible in eager mode and scalable on real problems.
+                    </p>
+                </article>
+                <article class="intro-highlight-card">
+                    <p class="intro-highlight-label">What it unlocks</p>
+                    <h3>One stack for BA, PGO, and downstream systems</h3>
+                    <p>
+                        The same LM-style optimizer patterns extend from bundle adjustment to pose graph optimization
+                        and support downstream reconstruction systems.
+                    </p>
+                </article>
+            </div>
+        </section>
+
         <section class="performance-hero" aria-labelledby="performance-title">
             <div class="performance-copy">
                 <p class="section-kicker">Performance</p>
@@ -51,15 +115,16 @@
                 </div>
                 <p class="performance-scale-note">Bar lengths shown on a logarithmic scale, with a small minimum width for readability.</p>
             </div>
-            <div class="performance-chart-shell">
-                <div class="performance-chart-bar">
-                    <span class="performance-chart-note">Animated reconstruction of the scaling plot</span>
-                    <button class="action-btn secondary performance-replay-btn" id="performance-replay" type="button">Replay Chart</button>
-                </div>
+                <div class="performance-chart-shell">
+                    <div class="performance-chart-bar">
+                        <span class="performance-chart-note">Log-scale speedup trend across increasing problem sizes</span>
+                        <button class="action-btn secondary performance-replay-btn" id="performance-replay" type="button">Replay Chart</button>
+                    </div>
                 <div class="performance-chart" id="performance-chart" role="img" aria-label="Animated speedup chart comparing BAE against G2O, GTSAM, and Ceres as the number of optimizable parameters increases"></div>
             </div>
         </section>
 
+        <div id="jacobian-tour" aria-hidden="true"></div>
         <header class="section-header">
             <h1>Sparsity-aware Jacobian Construction</h1>
             <p class="subtitle">Interactive compute graphs for Bundle Adjustment and Pose Graph Optimization.</p>
