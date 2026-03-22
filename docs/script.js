@@ -888,8 +888,8 @@ class PerformanceChart {
         this.series = [
             {
                 key: "g2o",
-                label: "Speedup vs. G2O",
-                trendLabel: "G2O Speedup Trend",
+                label: "Speedup vs. g²o",
+                trendLabel: "g²o Speedup Trend",
                 color: "#8d6ad7",
                 shape: "circle",
                 points: [
