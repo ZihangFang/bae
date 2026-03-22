@@ -64,6 +64,7 @@
 
 ## News
 
+- 2026-03-22: Added [skills](.agent/skills) for coding agents to write custom compute graphs.
 - 2025-12-12: Added a VGGT integration example.
 
 ## Features
@@ -124,6 +125,15 @@ If you are unable to install cudss with the system package manager, you can cont
 
 - `USE_CUDSS`: Set to "1" (default) to enable CUDSS support, "0" to disable
 - `CUDSS_DIR`: Optional path to CUDSS installation directory if not in standard locations
+
+## Agent Skills
+
+This repo includes skills in [.agent/skills](.agent/skills):
+
+<!-- - [`bae-codebase`](.agent/skills/bae-codebase/SKILL.md): general guidance for working in this repository -->
+- [`bae-compute-graph`](.agent/skills/bae-compute-graph/SKILL.md): guidance for defining BAL/PGO and more complex compute graphs
+
+<!-- Use `bae-compute-graph` for most changes, and add `bae-compute-graph` when working on residual definitions or Jacobian structure. -->
 
 ## Example Usage
 
