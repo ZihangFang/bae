@@ -164,6 +164,37 @@ h1 {
     font-size: 1.08rem;
 }
 
+.intro-paper-meta {
+    margin-top: 0.7rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.16rem;
+    padding-left: 0.9rem;
+    border-left: 2px solid rgba(201, 95, 67, 0.18);
+    max-width: 62ch;
+}
+
+.intro-paper-label {
+    color: var(--primary-color);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.intro-paper-title {
+    color: var(--text-primary);
+    font-size: 0.96rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.intro-byline {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
 .intro-chip-row {
     display: flex;
     flex-wrap: wrap;
