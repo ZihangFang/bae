@@ -11,7 +11,56 @@
 </head>
 <body>
     <div class="container">
-        <header>
+        <section class="performance-hero" aria-labelledby="performance-title">
+            <div class="performance-copy">
+                <p class="section-kicker">Performance</p>
+                <h2 id="performance-title">Speedups exponentially growing with scene size</h2>
+                <p class="subtitle">
+                    Built as a PyTorch-native, sparsity-aware BA library with GPU-accelerated sparse linear algebra, it
+                    widens the runtime gap as optimization problems scale.
+                </p>
+                <div class="performance-stats" aria-label="Average speedups across benchmarks">
+                    <div class="performance-stat performance-stat-ours" style="--bar-fill: 100%;">
+                        <span class="performance-stat-label">Ours</span>
+                        <div class="performance-stat-bar" aria-hidden="true">
+                            <span class="performance-stat-fill"></span>
+                        </div>
+                        <span class="performance-stat-value">Fastest</span>
+                    </div>
+                    <div class="performance-stat" style="--bar-fill: 7%;">
+                        <span class="performance-stat-label">GTSAM</span>
+                        <div class="performance-stat-bar" aria-hidden="true">
+                            <span class="performance-stat-fill"></span>
+                        </div>
+                        <span class="performance-stat-value">18.5x slower</span>
+                    </div>
+                    <div class="performance-stat" style="--bar-fill: 4%;">
+                        <span class="performance-stat-label">g2o</span>
+                        <div class="performance-stat-bar" aria-hidden="true">
+                            <span class="performance-stat-fill"></span>
+                        </div>
+                        <span class="performance-stat-value">22x slower</span>
+                    </div>
+                    <div class="performance-stat" style="--bar-fill: 4%;">
+                        <span class="performance-stat-label">Ceres</span>
+                        <div class="performance-stat-bar" aria-hidden="true">
+                            <span class="performance-stat-fill"></span>
+                        </div>
+                        <span class="performance-stat-value">23x slower</span>
+                    </div>
+                </div>
+                <p class="performance-scale-note">Bar lengths shown on a logarithmic scale, with a small minimum width for readability.</p>
+            </div>
+            <div class="performance-chart-shell">
+                <div class="performance-chart-bar">
+                    <span class="performance-chart-note">Animated reconstruction of the scaling plot</span>
+                    <button class="action-btn secondary performance-replay-btn" id="performance-replay" type="button">Replay Chart</button>
+                </div>
+                <div class="performance-chart" id="performance-chart" role="img" aria-label="Animated speedup chart comparing BAE against G2O, GTSAM, and Ceres as the number of optimizable parameters increases"></div>
+            </div>
+        </section>
+
+        <header class="section-header">
             <h1>Sparsity-aware Jacobian Construction</h1>
             <p class="subtitle">Interactive compute graphs for Bundle Adjustment and Pose Graph Optimization.</p>
         </header>
@@ -98,6 +147,60 @@
                 </div>
             </div>
         </div>
+
+        <section class="video-loop" id="product-story" aria-labelledby="video-loop-title">
+            <div class="video-loop-shell">
+                <div class="video-loop-header">
+                    <p class="section-kicker">
+                        Our work powering BA and global positioning in downstream system, <a href="https://github.com/cre185/InstantSfM">InstantSfM</a>.
+                    </p>
+                    <h2 id="video-loop-title">Broad Downstream Usage</h2>
+                </div>
+
+                <div class="video-loop-stage">
+                    <div class="video-loop-track">
+                        <article class="video-slide active" data-slide-index="0">
+                            <video muted playsinline preload="metadata" data-scene="Bonsai">
+                                <source src="https://cre185.github.io/InstantSfM/static/videos/bonsai.mp4" type="video/mp4">
+                            </video>
+                            <p class="video-slide-label">Bonsai</p>
+                        </article>
+                        <article class="video-slide" data-slide-index="1">
+                            <video muted playsinline preload="metadata" data-scene="Counter">
+                                <source src="https://cre185.github.io/InstantSfM/static/videos/counter.mp4" type="video/mp4">
+                            </video>
+                            <p class="video-slide-label">Counter</p>
+                        </article>
+                        <article class="video-slide" data-slide-index="2">
+                            <video muted playsinline preload="metadata" data-scene="Garden">
+                                <source src="https://cre185.github.io/InstantSfM/static/videos/garden.mp4" type="video/mp4">
+                            </video>
+                            <p class="video-slide-label">Garden</p>
+                        </article>
+                        <article class="video-slide" data-slide-index="3">
+                            <video muted playsinline preload="metadata" data-scene="Kitchen">
+                                <source src="https://cre185.github.io/InstantSfM/static/videos/kitchen.mp4" type="video/mp4">
+                            </video>
+                            <p class="video-slide-label">Kitchen</p>
+                        </article>
+                        <article class="video-slide" data-slide-index="4">
+                            <video muted playsinline preload="metadata" data-scene="Room">
+                                <source src="https://cre185.github.io/InstantSfM/static/videos/room.mp4" type="video/mp4">
+                            </video>
+                            <p class="video-slide-label">Room</p>
+                        </article>
+                    </div>
+                </div>
+
+                <div class="video-loop-dots" aria-label="Scene navigation">
+                    <button class="video-loop-dot active" type="button" data-slide-index="0" aria-label="Show Bonsai"></button>
+                    <button class="video-loop-dot" type="button" data-slide-index="1" aria-label="Show Counter"></button>
+                    <button class="video-loop-dot" type="button" data-slide-index="2" aria-label="Show Garden"></button>
+                    <button class="video-loop-dot" type="button" data-slide-index="3" aria-label="Show Kitchen"></button>
+                    <button class="video-loop-dot" type="button" data-slide-index="4" aria-label="Show Room"></button>
+                </div>
+            </div>
+        </section>
     </div>
     <script src="script.js"></script>
 </body>

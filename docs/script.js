@@ -879,6 +879,435 @@ class PGOCanvas extends BaseCanvas {
     }
 }
 
+class PerformanceChart {
+    constructor(containerId, replayButtonId) {
+        this.container = document.getElementById(containerId);
+        this.replayButton = document.getElementById(replayButtonId);
+        this.timeouts = [];
+        this.hasPlayed = false;
+        this.series = [
+            {
+                key: "g2o",
+                label: "Speedup vs. G2O",
+                trendLabel: "G2O Speedup Trend",
+                color: "#8d6ad7",
+                shape: "circle",
+                points: [
+                    [10500, 0.08], [11500, 0.7], [15000, 0.55], [38000, 5.2], [39000, 3.5], [52000, 3.3],
+                    [90000, 13], [100000, 28], [105000, 20], [130000, 24], [250000, 10], [255000, 185], [335000, 125],
+                ],
+                trend: [
+                    [10500, 0.16], [15000, 0.55], [36000, 4.8], [90000, 14], [110000, 23], [140000, 28], [250000, 72], [335000, 122],
+                ],
+            },
+            {
+                key: "gtsam",
+                label: "Speedup vs. GTSAM",
+                trendLabel: "GTSAM Speedup Trend",
+                color: "#5f8ee7",
+                shape: "square",
+                points: [
+                    [10500, 1.1], [11500, 7.8], [15000, 2.7], [35000, 4.7], [39000, 6.0], [85000, 18],
+                    [100000, 6.5], [110000, 22], [130000, 7.0], [250000, 18], [255000, 95], [335000, 170],
+                ],
+                trend: [
+                    [10500, 2.4], [15000, 3.8], [35000, 6.2], [90000, 9.2], [140000, 14], [250000, 50], [335000, 160],
+                ],
+            },
+            {
+                key: "ceres",
+                label: "Speedup vs. Ceres",
+                trendLabel: "Ceres Speedup Trend",
+                color: "#0f8a8d",
+                shape: "triangle",
+                points: [
+                    [10500, 0.7], [11500, 1.7], [15000, 1.7], [35000, 2.0], [35000, 5.0], [38000, 11.0],
+                    [52000, 8.2], [90000, 13], [105000, 24], [110000, 28], [130000, 22], [250000, 19], [255000, 110], [335000, 140],
+                ],
+                trend: [
+                    [10500, 0.95], [15000, 1.7], [35000, 5.0], [90000, 13.5], [140000, 26], [250000, 85], [335000, 135],
+                ],
+            },
+        ];
+
+        if (!this.container) {
+            return;
+        }
+
+        this.render();
+        this.replayButton?.addEventListener("click", () => this.play(true));
+
+        if ("IntersectionObserver" in window) {
+            this.observer = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting && !this.hasPlayed) {
+                        this.play(false);
+                    }
+                });
+            }, { threshold: 0.35 });
+            this.observer.observe(this.container);
+        } else {
+            this.play(false);
+        }
+    }
+
+    createSvgElement(tagName, attributes = {}) {
+        const node = document.createElementNS(SVG_NS, tagName);
+        Object.entries(attributes).forEach(([key, value]) => {
+            node.setAttribute(key, value);
+        });
+        return node;
+    }
+
+    xScale(value) {
+        const domainMin = Math.log10(10000);
+        const domainMax = Math.log10(350000);
+        const rangeMin = 110;
+        const rangeMax = 900;
+        const normalized = (Math.log10(value) - domainMin) / (domainMax - domainMin);
+        return rangeMin + normalized * (rangeMax - rangeMin);
+    }
+
+    yScale(value) {
+        const domainMin = Math.log10(0.05);
+        const domainMax = Math.log10(300);
+        const rangeMin = 470;
+        const rangeMax = 45;
+        const normalized = (Math.log10(value) - domainMin) / (domainMax - domainMin);
+        return rangeMin - normalized * (rangeMin - rangeMax);
+    }
+
+    buildSmoothPath(points) {
+        const mapped = points.map(([x, y]) => [this.xScale(x), this.yScale(y)]);
+        if (mapped.length === 0) {
+            return "";
+        }
+        if (mapped.length === 1) {
+            return `M ${mapped[0][0]} ${mapped[0][1]}`;
+        }
+
+        let path = `M ${mapped[0][0]} ${mapped[0][1]}`;
+        for (let index = 0; index < mapped.length - 1; index += 1) {
+            const current = mapped[index];
+            const next = mapped[index + 1];
+            const previous = mapped[index - 1] || current;
+            const afterNext = mapped[index + 2] || next;
+            const cp1x = current[0] + (next[0] - previous[0]) / 6;
+            const cp1y = current[1] + (next[1] - previous[1]) / 6;
+            const cp2x = next[0] - (afterNext[0] - current[0]) / 6;
+            const cp2y = next[1] - (afterNext[1] - current[1]) / 6;
+            path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next[0]} ${next[1]}`;
+        }
+        return path;
+    }
+
+    buildPointShape(shape, x, y, color) {
+        if (shape === "square") {
+            return this.createSvgElement("rect", {
+                x: x - 7,
+                y: y - 7,
+                width: 14,
+                height: 14,
+                fill: color,
+                class: "perf-point",
+            });
+        }
+
+        if (shape === "triangle") {
+            return this.createSvgElement("path", {
+                d: `M ${x} ${y - 8} L ${x - 8} ${y + 7} L ${x + 8} ${y + 7} Z`,
+                fill: color,
+                class: "perf-point",
+            });
+        }
+
+        return this.createSvgElement("circle", {
+            cx: x,
+            cy: y,
+            r: 7,
+            fill: color,
+            class: "perf-point",
+        });
+    }
+
+    render() {
+        this.container.innerHTML = "";
+        this.svg = this.createSvgElement("svg", {
+            viewBox: "0 0 960 560",
+            preserveAspectRatio: "xMidYMid meet",
+            "aria-hidden": "true",
+        });
+
+        const staticGroup = this.createSvgElement("g");
+        const trendGroup = this.createSvgElement("g");
+        const pointsGroup = this.createSvgElement("g");
+
+        this.staticNodes = [];
+        this.trendPaths = [];
+        this.dotNodes = [];
+
+        const yTicks = [
+            { value: 0.1, label: "10^-1" },
+            { value: 1, label: "10^0" },
+            { value: 10, label: "10^1" },
+            { value: 100, label: "10^2" },
+        ];
+        const xTicks = [
+            { value: 10000, label: "10k" },
+            { value: 30000, label: "30k" },
+            { value: 100000, label: "100k" },
+            { value: 300000, label: "300k" },
+        ];
+
+        yTicks.forEach((tick) => {
+            const y = this.yScale(tick.value);
+            const line = this.createSvgElement("line", {
+                x1: 110,
+                y1: y,
+                x2: 900,
+                y2: y,
+                class: "perf-grid-line",
+            });
+            const label = this.createSvgElement("text", {
+                x: 92,
+                y: y + 5,
+                "text-anchor": "end",
+                class: "perf-tick-label",
+            });
+            label.textContent = tick.label;
+            this.staticNodes.push(line, label);
+            staticGroup.append(line, label);
+        });
+
+        xTicks.forEach((tick) => {
+            const x = this.xScale(tick.value);
+            const line = this.createSvgElement("line", {
+                x1: x,
+                y1: 45,
+                x2: x,
+                y2: 470,
+                class: "perf-grid-line",
+            });
+            const label = this.createSvgElement("text", {
+                x,
+                y: 500,
+                "text-anchor": "middle",
+                class: "perf-tick-label",
+            });
+            label.textContent = tick.label;
+            this.staticNodes.push(line, label);
+            staticGroup.append(line, label);
+        });
+
+        const yAxis = this.createSvgElement("line", {
+            x1: 110, y1: 45, x2: 110, y2: 470, class: "perf-axis-line",
+        });
+        const xAxis = this.createSvgElement("line", {
+            x1: 110, y1: 470, x2: 900, y2: 470, class: "perf-axis-line",
+        });
+        const xLabel = this.createSvgElement("text", {
+            x: 505, y: 540, "text-anchor": "middle", class: "perf-axis-label",
+        });
+        xLabel.textContent = "Number of Optimizable Parameters";
+        const yLabel = this.createSvgElement("text", {
+            x: 28, y: 260, "text-anchor": "middle", class: "perf-axis-label",
+            transform: "rotate(-90 28 260)",
+        });
+        yLabel.textContent = "Speedup";
+        this.staticNodes.push(yAxis, xAxis, xLabel, yLabel);
+        staticGroup.append(yAxis, xAxis, xLabel, yLabel);
+
+        this.series.forEach((series, seriesIndex) => {
+            const trendPath = this.createSvgElement("path", {
+                d: this.buildSmoothPath(series.trend),
+                class: "perf-trend",
+                stroke: series.color,
+            });
+            trendGroup.appendChild(trendPath);
+            this.trendPaths.push(trendPath);
+
+            series.points.forEach(([xValue, yValue], pointIndex) => {
+                const x = this.xScale(xValue);
+                const y = this.yScale(yValue);
+                const group = this.createSvgElement("g", { class: "perf-dot" });
+                group.style.transformOrigin = `${x}px ${y}px`;
+                group.appendChild(this.buildPointShape(series.shape, x, y, series.color));
+                pointsGroup.appendChild(group);
+                this.dotNodes.push({ node: group, delay: 420 + (seriesIndex * 120) + (pointIndex * 45) });
+            });
+        });
+
+        const legendX = 520;
+        const legendY = 258;
+        const legend = this.createSvgElement("rect", {
+            x: legendX,
+            y: legendY,
+            width: 332,
+            height: 208,
+            rx: 12,
+            class: "perf-legend",
+        });
+        this.staticNodes.push(legend);
+        staticGroup.appendChild(legend);
+
+        this.series.forEach((series, index) => {
+            const y = legendY + 30 + index * 58;
+            const label = this.createSvgElement("text", {
+                x: legendX + 74,
+                y: y + 5,
+                class: "perf-legend-label",
+            });
+            label.textContent = series.label;
+            const marker = this.buildPointShape(series.shape, legendX + 34, y, series.color);
+            const trendLine = this.createSvgElement("line", {
+                x1: legendX + 12,
+                y1: y + 24,
+                x2: legendX + 54,
+                y2: y + 24,
+                stroke: series.color,
+                "stroke-width": 4,
+                "stroke-linecap": "round",
+            });
+            const trendLabel = this.createSvgElement("text", {
+                x: legendX + 74,
+                y: y + 29,
+                class: "perf-legend-label",
+            });
+            trendLabel.textContent = series.trendLabel;
+            this.staticNodes.push(marker, label, trendLine, trendLabel);
+            staticGroup.append(marker, label, trendLine, trendLabel);
+        });
+
+        this.svg.append(staticGroup, trendGroup, pointsGroup);
+        this.container.appendChild(this.svg);
+        this.resetAnimationState();
+    }
+
+    clearTimers() {
+        this.timeouts.forEach((timeoutId) => clearTimeout(timeoutId));
+        this.timeouts = [];
+    }
+
+    resetAnimationState() {
+        this.clearTimers();
+        this.staticNodes.forEach((node) => {
+            node.style.transition = "none";
+            node.style.opacity = "0";
+        });
+        this.trendPaths.forEach((path) => {
+            const length = path.getTotalLength();
+            path.style.transition = "none";
+            path.style.strokeDasharray = `${length}`;
+            path.style.strokeDashoffset = `${length}`;
+            path.style.opacity = "1";
+        });
+        this.dotNodes.forEach(({ node }) => {
+            node.style.transition = "none";
+            node.style.opacity = "0";
+            node.style.transform = "translateY(14px) scale(0.82)";
+        });
+    }
+
+    play(forceReplay) {
+        if (!forceReplay && this.hasPlayed) {
+            return;
+        }
+
+        this.hasPlayed = true;
+        this.resetAnimationState();
+
+        window.requestAnimationFrame(() => {
+            this.staticNodes.forEach((node) => {
+                node.style.transition = "opacity 420ms ease";
+                node.style.opacity = "1";
+            });
+
+            this.trendPaths.forEach((path, index) => {
+                const startDelay = 220 + index * 220;
+                this.timeouts.push(setTimeout(() => {
+                    path.style.transition = "stroke-dashoffset 1000ms cubic-bezier(0.23, 1, 0.32, 1)";
+                    path.style.strokeDashoffset = "0";
+                }, startDelay));
+            });
+
+            this.dotNodes.forEach(({ node, delay }) => {
+                this.timeouts.push(setTimeout(() => {
+                    node.style.transition = "opacity 260ms ease, transform 360ms ease";
+                    node.style.opacity = "1";
+                    node.style.transform = "translateY(0) scale(1)";
+                }, delay));
+            });
+        });
+    }
+}
+
+class VideoLoopCarousel {
+    constructor(rootId) {
+        this.root = document.getElementById(rootId);
+        if (!this.root) {
+            return;
+        }
+
+        this.track = this.root.querySelector(".video-loop-track");
+        this.slides = Array.from(this.root.querySelectorAll(".video-slide"));
+        this.navButtons = Array.from(this.root.querySelectorAll(".video-loop-dot"));
+        this.activeIndex = 0;
+
+        this.navButtons.forEach((button) => {
+            button.addEventListener("click", () => {
+                this.showSlide(Number(button.dataset.slideIndex || 0), true);
+            });
+        });
+
+        this.slides.forEach((slide, index) => {
+            const video = slide.querySelector("video");
+            if (!video) {
+                return;
+            }
+            video.addEventListener("ended", () => {
+                if (index === this.activeIndex) {
+                    this.showSlide(index + 1, true);
+                }
+            });
+        });
+
+        this.showSlide(0, false);
+    }
+
+    showSlide(index, restartVideo) {
+        if (!this.root || this.slides.length === 0) {
+            return;
+        }
+
+        this.activeIndex = ((index % this.slides.length) + this.slides.length) % this.slides.length;
+        this.track.style.transform = `translate3d(${-this.activeIndex * 100}%, 0, 0)`;
+
+        this.slides.forEach((slide, slideIndex) => {
+            const isActive = slideIndex === this.activeIndex;
+            slide.classList.toggle("active", isActive);
+            const video = slide.querySelector("video");
+            if (!video) {
+                return;
+            }
+            if (isActive) {
+                if (restartVideo) {
+                    video.currentTime = 0;
+                }
+                const playPromise = video.play();
+                if (playPromise && typeof playPromise.catch === "function") {
+                    playPromise.catch(() => {});
+                }
+            } else {
+                video.pause();
+                video.currentTime = 0;
+            }
+        });
+        this.navButtons.forEach((button, buttonIndex) => {
+            button.classList.toggle("active", buttonIndex === this.activeIndex);
+        });
+    }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     const tabButtons = document.querySelectorAll(".tab-btn");
     const tabContents = document.querySelectorAll(".tab-content");
@@ -909,4 +1338,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.getElementById("play-pgo").addEventListener("click", () => pgoScene.play());
     document.getElementById("reset-pgo").addEventListener("click", () => pgoScene.reset());
+
+    new PerformanceChart("performance-chart", "performance-replay");
+    new VideoLoopCarousel("product-story");
 });
