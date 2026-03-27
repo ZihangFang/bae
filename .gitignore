@@ -12,3 +12,4 @@ task.md
 *.pickle
 *.png
 .DS_Store
+tmp/*

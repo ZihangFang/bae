@@ -40,7 +40,6 @@ class LM(ppLM):
                 diagonal_op_(A, op=partial(torch.mul, other=1+pg['damping']))
                 try:
                     D = self.solver(A, -J_T @ R.view(-1, 1))
-                    D = D[:, None]
                 except Exception as e:
                     print(e, "\nLinear solver failed. Breaking optimization step...")
                     break
