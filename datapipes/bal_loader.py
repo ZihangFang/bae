@@ -83,7 +83,7 @@ def _ensure_problem_available(dataset: str, problem_name: str, cache_dir: Path) 
     os.replace(tmp_path, txt_path)
     return txt_path
 
-def get_problem(problem_name, dataset, cache_dir='bal_data', use_quat=False):
+def get_problem(problem_name, dataset, cache_dir='bal_data', use_quat=True):
     cache_path = Path(cache_dir)
     print(f"Preparing data for {dataset}...")
     _validate_dataset(dataset)
