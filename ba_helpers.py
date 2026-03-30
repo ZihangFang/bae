@@ -43,4 +43,3 @@ def least_square_error(camera_params, points_3d, camera_indices, point_indices, 
     model = Reproj(camera_params, points_3d)
     loss = model(points_2d, camera_indices, point_indices)
     return torch.sum(loss**2, dim=-1).mean()
-    return torch.sum(loss**2) / 2
