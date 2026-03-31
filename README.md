@@ -77,8 +77,10 @@
 - **Levenberg-Marquardt Optimizer**: Custom implementation of the LM algorithm for non-linear least squares problems
 
 ### Future Plan
-- [ ] An new backend for [distributed solver](https://github.com/NVIDIA/AMGX)
 - [ ] Add Apple Silicon GPU support, [PyTorch PR WIP](https://github.com/pytorch/pytorch/pull/177757)
+- [ ] Reduce runtime overhead using CUDA graph
+- [ ] Distributed Tensor (DTensor) support
+- [ ] An new backend for [distributed solver](https://github.com/NVIDIA/AMGX)
 
 ## Installation
 
@@ -190,14 +192,6 @@ python demo_colmap.py --scene_dir /path/to/scene --use_ba --implementation bae  
 ```
 
 This command invokes `prepare_bae(...)` inside `vggt/demo_colmap.py`, which wraps VGGT tracks and predictions into `bae.optim.LM` and updates `extrinsic`, `intrinsic`, and `points_3d` in place before writing `scene_dir/sparse/` in COLMAP format.
-
-## Dataset Support
-
-The library supports common optimization datasets and tasks:
-
-- **Bundle Adjustment in the Large (BAL)** dataset
-- **1DSfM** dataset for large-scale structure from motion
-- **G2O** pose graph datasets
 
 ## Performance
 
