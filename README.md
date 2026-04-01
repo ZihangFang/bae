@@ -211,7 +211,7 @@ If you use `bae` in your research, please cite:
   title = {Bundle Adjustment in the Eager Mode},
   author = {Zhan, Zitong and Xu, Huan and Fang, Zihang and Wei, Xinpeng and Hu, Yaoyu and Wang, Chen},
   journal = {arXiv preprint arXiv:2409.12190},
-  year = {2025},
+  year = {2024},
   url = {https://arxiv.org/abs/2409.12190}
 }
 ```
