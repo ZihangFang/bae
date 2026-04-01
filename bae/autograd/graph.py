@@ -4,6 +4,8 @@ from typing import Optional
 import torch
 from torch.func import jacrev
 
+from ..sparse import warp_wrappers as _warp_wrappers  # noqa: F401
+
 
 def _crow_to_row_indices(crow_indices: torch.Tensor) -> torch.Tensor:
     counts = (crow_indices[1:] - crow_indices[:-1]).to(torch.int64)
