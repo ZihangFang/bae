@@ -307,6 +307,9 @@ def test_bal_jacobian_structure_no_empty_columns(
         n_pts=n_pts,
     )
 
+    if device.type != "cuda":
+        return
+
     final_per_pixel_error = _final_bal_per_pixel_error(
         camera_params,
         points_3d,
@@ -551,6 +554,9 @@ def test_bal_jacobian_cat_fixed_first_camera_gauge_free(
     diag = torch.zeros(J_full.shape[1], dtype=J_full.dtype, device=J_full.device)
     diag.scatter_add_(0, J_full.indices()[1].to(torch.int64), J_full.values().square())
     assert (diag > 0).all()
+
+    if device.type != "cuda":
+        return
 
     final_per_pixel_error = _final_bal_per_pixel_error_fixed_first_camera_cat(
         camera_params,

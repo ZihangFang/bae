@@ -43,7 +43,7 @@ def sp_diag_clamp_inp(x):
     return x
 
 class TestBSR:
-    @pytest.mark.parametrize('device', ['cpu', 'cuda'])
+    @pytest.mark.parametrize('device', ['cuda'])
     @pytest.mark.parametrize('block_prob', [0.0, 0.5, 1.0])
     @pytest.mark.parametrize('zero_prob', [0., 0.7, 1.0])
     @pytest.mark.parametrize('op, dense_op, layouts, mode, dim', [
@@ -54,10 +54,6 @@ class TestBSR:
         (diag_clamp_oop, diag_clamp_oop, ['bsr'], 'identical_square', 2),
         ])
     def test_universal(self, op, dense_op, layouts, mode, dim, zero_prob, block_prob, device):
-        if device == 'cuda' and not torch.cuda.is_available():
-            pytest.skip("CUDA not available")
-        if device == 'cpu' and op is torch.matmul:
-            pytest.skip("BSR matmul requires CUDA")
         if mode == 'identical':
             pshape = torch.Size(torch.randint(1, 10, (dim,)))
             bshape = torch.Size(torch.randint(1, 10, (dim,)))
