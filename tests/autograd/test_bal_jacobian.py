@@ -414,7 +414,7 @@ def _final_bal_per_pixel_error_fixed_first_camera_cat(
     camera_all = torch.cat([camera_se3_all, model.intrinsics.tensor()], dim=-1)
     return least_square_error(
         camera_all,
-        model.points.tensor(),
+        model.points_3d.tensor(),
         camera_idx,
         point_idx,
         points_2d,
