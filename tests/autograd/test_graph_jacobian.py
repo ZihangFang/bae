@@ -335,7 +335,6 @@ def test_sparse_jacobian_matches_lie_tensor_pgo_residual(device: str):
     idx2 = torch.tensor([1, 2, 3, 4], device=device, dtype=torch.int64)
 
     model = nn.Parameter(Track(nodes0))
-    model.trim_SE3_grad = True
     out = _relative_se3_residual(poses, model[idx1], model[idx2])
 
     (J_sparse,) = sparse_jacobian(out, [model])

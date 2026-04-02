@@ -108,7 +108,6 @@ class PoseGraph(nn.Module):
     def __init__(self, nodes):
         super().__init__()
         self.nodes = nn.Parameter(TrackingTensor(nodes))
-        self.nodes.trim_SE3_grad = True
 
     def forward(self, edges, poses, infos):
         node1 = self.nodes[edges[..., 0]]
