@@ -98,7 +98,7 @@ def foo(poses, node1, node2, infos):
 
 @map_transform
 def foo(poses, node1, node2, infos):
-    residual = (pp.SE3(poses).Inv() @ pp.SE3(node1).Inv() @ pp.SE3(node2)).Log().tensor()
+    residual = (poses.Inv() @ node1.Inv() @ node2).Log().tensor()
     residual = infos @ residual[..., None]
     residual = residual[..., 0]
     return residual
@@ -108,7 +108,6 @@ class PoseGraph(nn.Module):
     def __init__(self, nodes):
         super().__init__()
         self.nodes = nn.Parameter(TrackingTensor(nodes))
-        self.nodes.trim_SE3_grad = True
 
     def forward(self, edges, poses, infos):
         node1 = self.nodes[edges[..., 0]]
@@ -158,7 +157,7 @@ if __name__ == '__main__':
     scheduler = StopOnPlateau(optimizer, steps=20, patience=3, decreasing=1e-7, verbose=True)
 
     pngname = os.path.join(args.save, args.dataname+'.png')
-    axlim = plot_and_save(pp.SE3(graph.nodes).translation(), pngname, args.dataname)
+    plot_and_save(graph.nodes.translation(), pngname, args.dataname)
     axlim = None
     ### the 1st implementation: for customization and easy to extend
     start = torch.cuda.Event(enable_timing=True)
@@ -174,7 +173,7 @@ if __name__ == '__main__':
     end.record()
     print('Time elapsed: %.3f ms'%(start.elapsed_time(end)))
     print('Final loss: %7f'%(loss.item()/2))
-    plot_and_save(pp.SE3(graph.nodes).translation(), name+'.png', title, axlim=axlim)
+    plot_and_save(graph.nodes.translation(), name+'.png', title, axlim=axlim)
     torch.save(graph.state_dict(), name+'.pt')
     write_ceres_txt(graph.nodes, name+'.txt')
 
