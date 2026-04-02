@@ -157,7 +157,7 @@ if __name__ == '__main__':
     scheduler = StopOnPlateau(optimizer, steps=20, patience=3, decreasing=1e-7, verbose=True)
 
     pngname = os.path.join(args.save, args.dataname+'.png')
-    axlim = plot_and_save(graph.nodes.translation(), pngname, args.dataname)
+    plot_and_save(graph.nodes.translation(), pngname, args.dataname)
     axlim = None
     ### the 1st implementation: for customization and easy to extend
     start = torch.cuda.Event(enable_timing=True)
