@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/sair-lab/bae/f4cc38c6bf0ff7ddf9d0512e223055b57588bef7/assets/github-banner.svg" alt="bae GitHub banner" width="100%" />
+  <img src="https://raw.githubusercontent.com/sair-lab/bae/93eb45121965719c1abbed9437b4832f669b8c87/assets/github-banner.svg" alt="bae GitHub banner" width="100%" />
 </p>
 
 <p align="center">
