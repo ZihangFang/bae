@@ -1,6 +1,10 @@
 <h1 align="center"><code>bae</code>: Bundle Adjustment in the Eager-mode</h1>
 
 <p align="center">
+  <img src="https://raw.githubusercontent.com/sair-lab/bae/f4cc38c6bf0ff7ddf9d0512e223055b57588bef7/assets/github-banner.svg" alt="bae GitHub banner" width="100%" />
+</p>
+
+<p align="center">
   <a href="https://github.com/zitongzhan">Zitong Zhan</a>, <a href="https://www.linkedin.com/in/huan-xu-999700169/?locale=en_US">Huan Xu</a>, Zihang Fang, <a href="https://www.linkedin.com/in/william-xp-wei/">Xinpeng Wei</a>, <a href="https://theairlab.org/team/yaoyuh/">Yaoyu Hu</a>, and <a href="https://sairlab.org">Chen Wang</a>
 </p>
 
