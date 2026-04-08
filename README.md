@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://sairlab.org/bae/">🌐 Project Page</a> | <a href="https://arxiv.org/abs/2409.12190">📄 PDF</a>
+  <a href="https://pypose.org/bae/">🌐 Project Page</a> | <a href="https://arxiv.org/abs/2409.12190">📄 PDF</a>
 </p>
 
 > **⚠️ Development Phase Notice**: This library is currently in active development. APIs are subject to change and should be considered experimental. Use at your own discretion in production environments.
