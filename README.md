@@ -1,5 +1,3 @@
-<h1 align="center"><code>bae</code>: Bundle Adjustment in the Eager-mode</h1>
-
 <p align="center">
   <img src="https://raw.githubusercontent.com/sair-lab/bae/f4cc38c6bf0ff7ddf9d0512e223055b57588bef7/assets/github-banner.svg" alt="bae GitHub banner" width="100%" />
 </p>
