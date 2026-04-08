@@ -104,9 +104,9 @@
    ```bash
    sudo apt install cudss-cuda-13
    ```
-3. Install PyPose from the main branch:
+3. Install PyPose:
    ```bash
-   pip install git+https://github.com/pypose/pypose.git@main
+   pip install git+https://github.com/pypose/pypose.git
    ```
 4. Clone this repository:
    ```bash
