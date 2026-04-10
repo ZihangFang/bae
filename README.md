@@ -2,15 +2,14 @@
   <img src="https://raw.githubusercontent.com/sair-lab/bae/93eb45121965719c1abbed9437b4832f669b8c87/assets/github-banner.svg" alt="bundle adjustment in the eager-mode" width="100%" />
 </picture>
 
-<p align="center">
+<!-- <p align="center">
   <a href="https://github.com/zitongzhan">Zitong Zhan</a>, <a href="https://www.linkedin.com/in/huan-xu-999700169/?locale=en_US">Huan Xu</a>, Zihang Fang, <a href="https://www.linkedin.com/in/william-xp-wei/">Xinpeng Wei</a>, <a href="https://theairlab.org/team/yaoyuh/">Yaoyu Hu</a>, and <a href="https://sairlab.org">Chen Wang</a>
-</p>
+</p> -->
 
 <p align="center">
   <a href="https://pypose.org/bae/">🌐 Project Page</a> | <a href="https://arxiv.org/abs/2409.12190">📄 PDF</a>
 </p>
 
-> **⚠️ Development Phase Notice**: This library is currently in active development. APIs are subject to change and should be considered experimental. Use at your own discretion in production environments.
 
 `bae` is a PyTorch-based library supporting **exact** 2nd-order optimization techniques. The library provides efficient implementations for sparse optimization problems in robotics, particularly Bundle Adjustment (BA) and Pose Graph Optimization (PGO).
 
