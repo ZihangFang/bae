@@ -23,7 +23,8 @@ class PCG(CG):
     def __init__(self, maxiter=None, tol=1e-5):
         super().__init__(maxiter, tol)
     def forward(self, A, b, x=None, M=None) -> torch.Tensor:
-        if b.dim() == 1:
+        was_vector = b.dim() == 1
+        if was_vector:
             b = b[..., None]
         l_diag = A.diagonal().clone()
         l_diag[l_diag.abs() < 1e-6] = 1e-6
@@ -33,13 +34,14 @@ class PCG(CG):
             # M = M.to_sparse_csr()
             pass
             # A = M @ A
-        elif layout == torch.sparse_bsr and isinstance(A, torch.Tensor):
+        # elif layout == torch.sparse_bsr and isinstance(A, torch.Tensor):
+
+        if A.layout == torch.sparse_bsr:
             M = M.to_sparse_bsr(blocksize=A.values().shape[-2:]).to(A.device)
-            # A = M @ A.to_sparse_bsc(blocksize=A.values().shape[-2:])
-        # b = M @ b
 
         res = super().forward(A, b, x, M)
-        res = res.squeeze(-1) 
+        if was_vector:
+            res = res.squeeze(-1)
         return res
 
 class SciPySpSolver(torch.nn.Module):

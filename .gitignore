@@ -12,3 +12,5 @@ task.md
 *.pickle
 *.png
 .warp_cache/*
+.DS_Store
+tmp/*

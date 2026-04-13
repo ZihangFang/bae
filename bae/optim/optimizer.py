@@ -1,5 +1,4 @@
 from functools import partial
-import math
 import torch
 from pypose.optim import LevenbergMarquardt as ppLM
 import pypose as pp
@@ -11,6 +10,7 @@ from ..autograd.function import TrackingTensor
 from ..sparse.py_ops import diagonal_op_, inv_op
 from ..sparse.spgemm import CuSparse
 from ..utils.linear_operator import NormalMatVec
+from ..utils.parameter import parameter_update_shape
 
 
 
@@ -56,6 +56,7 @@ class LM(ppLM):
                 try:
                     D = self.solver(A, rhs)
                     D = D[:, None]
+                    D = self.solver(A, -J_T @ R.view(-1, 1))
                 except Exception as e:
                     print(e, "\nLinear solver failed. Breaking optimization step...")
                     break
@@ -74,22 +75,21 @@ class LM(ppLM):
         numels = []
         for param in params:
             if param.requires_grad:
-                if getattr(param, 'trim_SE3_grad', False):
-                    numels.append(math.prod(param.shape[:-1]) * (param.shape[-1] - 1))
-                else:
-                    numels.append(param.numel())
+                numels.append(torch.Size(parameter_update_shape(param)).numel())
         steps = step.split(numels)
         for (param, d) in zip(params, steps):
             if param.requires_grad:
+                step_view = d.view(parameter_update_shape(param))
                 if getattr(param, 'trim_SE3_grad', False):
-                    param[..., :7] = pp.SE3(param[..., :7]).add_(pp.se3(d.view(param.shape[0], -1)[..., :6]))
+                    param[..., :7] = pp.SE3(param[..., :7]).add_(pp.se3(step_view[..., :6]))
                     if param.shape[-1] > 7:
-                        param[:, 7:] += d.view(param.shape[0], -1)[:, 6:]
+                        param[:, 7:] += step_view[..., 6:]
                 else:
                     param.add_(d.view(param.shape))
 
 import warp as wp
 from warp import sparse
+
 class Schur(LM):
     @torch.no_grad()
     def step(self, input, target=None, weight=None):
@@ -226,3 +226,4 @@ class Schur(LM):
                 else:
                     break
         return self.loss
+    # param.add_(step_view)
