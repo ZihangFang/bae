@@ -35,16 +35,19 @@ REPORT_WARP_MEMPOOL = True
 
 
 def _format_bytes(num_bytes: int) -> str:
+    sign = "-" if num_bytes < 0 else ""
+    size = float(abs(num_bytes))
     units = ["B", "KiB", "MiB", "GiB", "TiB"]
-    size = float(num_bytes)
-    unit = units[0]
+
     for unit in units:
         if size < 1024.0 or unit == units[-1]:
             break
         size /= 1024.0
+        
     if unit == "B":
-        return f"{int(size)} {unit}"
-    return f"{size:.2f} {unit}"
+        return f"{sign}{int(size)} {unit}"
+
+    return f"{sign}{size:.2f} {unit}"
 
 
 @map_transform
@@ -93,7 +96,13 @@ class TrustRegion(pp.optim.strategy.TrustRegion):
                 else:
                     JD += J[i] @ D[i].flatten()
         JD = JD[..., None]
-        quality = (last - loss) / -((JD).mT @ (2 * R.view_as(JD) + JD)).squeeze()
+        denom = -((JD).mT @ (2 * R.view_as(JD) + JD)).squeeze()
+    
+        if loss >= last or denom <= 0:
+            quality = -1.0
+        else:
+            quality = (last - loss) / denom
+        
         pg['radius'] = 1. / pg['damping']
         if quality > pg['high']:
             pg['radius'] = pg['up'] * pg['radius']
@@ -144,11 +153,6 @@ def main():
         if isinstance(value, torch.Tensor)
     }
 
-    # input = {
-    #     "observes": dataset["points_2d"],
-    #     "cidx": dataset["camera_index_of_observations"],
-    #     "pidx": dataset["point_index_of_observations"],
-    # }
     input = {
         "points_2d": dataset["points_2d"],
         "camera_indices": dataset["camera_index_of_observations"],
@@ -205,15 +209,16 @@ def main():
         loss = optimizer.step(input)
         print('Iteration', idx, 'loss', loss.item(), 'time', perf_counter() - start)
 
+    if cuda_device is not None and torch.cuda.is_available():
+        torch.cuda.synchronize(cuda_device)
+    end = perf_counter()
+    
+    print('Time', end - start)
+
     if memory_snapshot_path:
         torch.cuda.synchronize(cuda_device)
         torch.cuda.memory._dump_snapshot(str(memory_snapshot_path))
         print(f"CUDA memory snapshot saved to {memory_snapshot_path}")
-
-    if cuda_device is not None and torch.cuda.is_available():
-        torch.cuda.synchronize(cuda_device)
-    end = perf_counter()
-    print('Time', end - start)
 
     if cuda_device is not None and torch.cuda.is_available():
         peak_allocated = torch.cuda.max_memory_allocated(cuda_device)
