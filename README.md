@@ -2,8 +2,6 @@
   <img src="https://raw.githubusercontent.com/sair-lab/bae/93eb45121965719c1abbed9437b4832f669b8c87/assets/github-banner.svg" alt="bundle adjustment in the eager-mode" width="100%" />
 </picture>
 
-#### BAE has been integrated into [PyPose](https://github.com/pypose/pypose) and is available from [v0.9.5](https://pypi.org/project/pypose/) or higher. Please refer to [this example](https://github.com/pypose/pypose/tree/main/examples/module/ba) and docs of [psjac](https://pypose.org/docs/main/generated/pypose.autograd.function.parallel_for_sparse_jacobian/#pypose.autograd.function.parallel_for_sparse_jacobian) and [LM](https://pypose.org/docs/main/generated/pypose.optim.LevenbergMarquardt/#pypose.optim.LevenbergMarquardt).
-
 <p align="center">
   <a>Accepted to <b>IEEE Transactions on Robotics (T-RO)</b>, 2026</a>
 </p>
@@ -16,6 +14,7 @@
   <a href="https://pypose.org/bae/">🌐 Project Page</a> | <a href="https://arxiv.org/abs/2409.12190">📄 PDF</a>
 </p>
 
+> **⚠️ User Notice**: `bae` has been integrated with [PyPose](https://github.com/pypose/pypose) and is available from [v0.9.5](https://pypi.org/project/pypose/) or higher. Please refer to [this example](https://github.com/pypose/pypose/tree/main/examples/module/ba) and docs of [psjac](https://pypose.org/docs/main/generated/pypose.autograd.function.parallel_for_sparse_jacobian/#pypose.autograd.function.parallel_for_sparse_jacobian) and [LM](https://pypose.org/docs/main/generated/pypose.optim.LevenbergMarquardt/#pypose.optim.LevenbergMarquardt).
 
 `bae` is a PyTorch-based library supporting **exact** 2nd-order optimization techniques. The library provides efficient implementations for sparse optimization problems in robotics, particularly Bundle Adjustment (BA) and Pose Graph Optimization (PGO).
 
