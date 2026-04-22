@@ -7,7 +7,7 @@
 
 ### BAE is published as the following paper:
 
-### [Zitong Zhan](https://sairlab.org/zitongz), Huan Xu, Zihang Fang, Xinpengnd Wei, Yaoyu Hu, [Chen Wang](https://sairlab.org/chenw), "[Bundle Adjustment in the Eager Mode](https://arxiv.org/abs/2409.12190)," IEEE Transactions on Robotics (T-RO), 2026.
+### [Zitong Zhan](https://sairlab.org/zitongz), Huan Xu, Zihang Fang, Xinpeng Wei, Yaoyu Hu, [Chen Wang](https://sairlab.org/chenw), "[Bundle Adjustment in the Eager Mode](https://arxiv.org/abs/2409.12190)," IEEE Transactions on Robotics (T-RO), 2026.
 
 
 <!-- <p align="center">
