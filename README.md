@@ -2,6 +2,14 @@
   <img src="https://raw.githubusercontent.com/sair-lab/bae/93eb45121965719c1abbed9437b4832f669b8c87/assets/github-banner.svg" alt="bundle adjustment in the eager-mode" width="100%" />
 </picture>
 
+# BAE has been merged into PyPose and available from [v0.9.5](https://pypi.org/project/pypose/) or higher. Please refer to [this example](https://github.com/pypose/pypose/tree/main/examples/module/ba) and docs of [psjac](https://pypose.org/docs/main/generated/pypose.autograd.function.parallel_for_sparse_jacobian/#pypose.autograd.function.parallel_for_sparse_jacobian) and [LM](https://pypose.org/docs/main/generated/pypose.optim.LevenbergMarquardt/#pypose.optim.LevenbergMarquardt).
+
+
+### BAE is published as the following paper:
+
+### [Zitong Zhan](https://sairlab.org/zitongz), Huan Xu, Zihang Fang, Xinpengnd Wei, Yaoyu Hu, [Chen Wang](https://sairlab.org/chenw), "[Bundle Adjustment in the Eager Mode](https://arxiv.org/abs/2409.12190)," IEEE Transactions on Robotics (T-RO), 2026.
+
+
 <!-- <p align="center">
   <a href="https://github.com/zitongzhan">Zitong Zhan</a>, <a href="https://www.linkedin.com/in/huan-xu-999700169/?locale=en_US">Huan Xu</a>, Zihang Fang, <a href="https://www.linkedin.com/in/william-xp-wei/">Xinpeng Wei</a>, <a href="https://theairlab.org/team/yaoyuh/">Yaoyu Hu</a>, and <a href="https://sairlab.org">Chen Wang</a>
 </p> -->
