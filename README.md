@@ -3,11 +3,10 @@
 </picture>
 
 <p align="center">
-  <a>Accepted to <em>**IEEE Transactions on Robotics (T-RO)**</em>, 2026</a>
+  <a>Accepted to <b>IEEE Transactions on Robotics (T-RO)</b>, 2026</a>
 </p>
 
 <p align="center">
-
   <a href="https://github.com/zitongzhan">Zitong Zhan</a>, <a href="https://www.linkedin.com/in/huan-xu-999700169/?locale=en_US">Huan Xu</a>, Zihang Fang, <a href="https://www.linkedin.com/in/william-xp-wei/">Xinpeng Wei</a>, <a href="https://theairlab.org/team/yaoyuh/">Yaoyu Hu</a>, and <a href="https://sairlab.org">Chen Wang</a>
 </p>
 
