@@ -200,15 +200,6 @@ python demo_colmap.py --scene_dir /path/to/scene --use_ba --implementation bae  
 
 This command invokes `prepare_bae(...)` inside `vggt/demo_colmap.py`, which wraps VGGT tracks and predictions into `bae.optim.LM` and updates `extrinsic`, `intrinsic`, and `points_3d` in place before writing `scene_dir/sparse/` in COLMAP format.
 
-## Performance
-
-`bae` is designed for high performance using:
-
-- Efficient sparse block matrix operations
-- CUDA acceleration for core operations
-- Optimized linear solvers (PCG, CUDA Sparse Solver)
-- Memory-efficient data structures
-
 ## Citation
 
 If you use `bae` in your research, please cite:
