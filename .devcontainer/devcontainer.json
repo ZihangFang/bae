@@ -28,7 +28,9 @@
 	// Configure tool-specific properties.
 	// "customizations": {},
 
-	// Uncomment to connect as an existing user other than the container default. More info: https://aka.ms/dev-containers-non-root.
+	"containerEnv": {
+		"TORCH_CUDA_ARCH_LIST": "native"
+	},
 	"runArgs": ["--user=0:0", "--gpus", "all"],
 	"remoteUser": "root"
 }
