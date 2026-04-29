@@ -1,8 +1,9 @@
-from functools import partial
 import torch
-from pypose.optim import LevenbergMarquardt as ppLM
 import pypose as pp
-
+import warp as wp
+from functools import partial
+from pypose.optim import LevenbergMarquardt as ppLM
+from warp import sparse
 from warp.optim import linear
 from bae.sparse.warp_wrappers import format_vec_for_bsr, torchbsr2wp, wp2torchbsr
 from ..autograd.graph import jacobian
@@ -11,8 +12,6 @@ from ..sparse.py_ops import diagonal_op_, inv_op
 from ..sparse.spgemm import CuSparse
 from ..utils.linear_operator import NormalMatVec
 from ..utils.parameter import parameter_update_shape
-
-
 
 
 class LM(ppLM):
@@ -25,16 +24,17 @@ class LM(ppLM):
     def step(self, input, target=None, weight=None):
         for pg in self.param_groups:
             weight = self.weight if weight is None else weight
-            R = list(self.model(input))
-            R = R[0]
+            R = self.model(input)[0]
             J_list = jacobian(R, pg['params'])
+
             if isinstance(R, TrackingTensor):
                 R = R.tensor()
-            J = torch.cat([j.to_sparse_coo() for j in J_list], dim=-1)
+
+            J = torch.cat([j.to_sparse_coo() for j in J_list], dim=-1).to_sparse_csr()
+            del J_list
 
             self.last = self.loss = self.loss if hasattr(self, 'loss') else self.model.loss(input, target)
             self.reject_count = 0
-            J = J.to_sparse_csr()
 
             if self.matrix_free_normal:
                 diag = NormalMatVec._compute_diag(J).clamp(min=pg['min'], max=pg['max'])
@@ -45,6 +45,7 @@ class LM(ppLM):
                 J_T = J.mT.to_sparse_csr()
                 rhs = -J_T @ R.view(-1, 1)
                 A = self.mm(J_T, J)
+                del J_T
                 diagonal_op_(A, op=partial(torch.clamp_, min=pg['min'], max=pg['max']))
 
             while self.last <= self.loss:
@@ -55,8 +56,6 @@ class LM(ppLM):
                     diagonal_op_(A, op=partial(torch.mul, other=1+pg['damping']))
                 try:
                     D = self.solver(A, rhs)
-                    D = D[:, None]
-                    D = self.solver(A, -J_T @ R.view(-1, 1))
                 except Exception as e:
                     print(e, "\nLinear solver failed. Breaking optimization step...")
                     break
@@ -87,8 +86,6 @@ class LM(ppLM):
                 else:
                     param.add_(d.view(param.shape))
 
-import warp as wp
-from warp import sparse
 
 class Schur(LM):
     @torch.no_grad()
@@ -226,4 +223,3 @@ class Schur(LM):
                 else:
                     break
         return self.loss
-    # param.add_(step_view)
