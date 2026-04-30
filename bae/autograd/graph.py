@@ -1,5 +1,6 @@
 
 from typing import Optional
+import warnings
 
 import pypose as pp
 import torch
@@ -135,8 +136,8 @@ def _clear_jactrace(output, params):
             if isinstance(arg, torch.Tensor):
                 stack.append(arg)
         elif op == 'cat':
-            args = tensor.optrace[id(tensor)][2]
-            stack.extend(arg for arg in args if isinstance(arg, torch.Tensor))
+            tracked = tensor.optrace[id(tensor)][2]  # ((start, end, arg), ...)
+            stack.extend(item[2] for item in tracked if isinstance(item[2], torch.Tensor))
 
 
 def amend_trace(arg, jac_trace: tuple):
@@ -172,13 +173,18 @@ def update_from_trace(bsrt: torch.Tensor, arg, new_col: Optional[torch.Tensor]=N
             )
     return jac_trace
 
-def backward(output_):
+def backward(output_, is_root=False):
+    # For non-root recursion, no incoming trace means no contribution to
+    # propagate. This avoids re-initializing identity traces on revisits.
+    if (not is_root) and (not hasattr(output_, 'jactrace')):
+        return
+
     if output_.optrace[id(output_)][0] == 'map':
         func = output_.optrace[id(output_)][1]
         args = output_.optrace[id(output_)][2]
         argnums = tuple(idx for idx, arg in enumerate(args) if hasattr(arg, 'optrace') or isinstance(arg, torch.nn.Parameter))
         if len(argnums) == 0:
-            warning("No upstream parameters to compute jacobian")
+            warnings.warn("No upstream parameters to compute jacobian", stacklevel=2)
             return
         with pp.retain_ltype():
             jac_blocks = torch.vmap(jacrev(func, argnums=argnums))(*args)
@@ -207,9 +213,22 @@ def backward(output_):
                 elif isinstance(output_.jactrace, torch.Tensor) and output_.jactrace.layout == torch.sparse_bsr:
                     jac_trace = update_from_trace(output_.jactrace, arg, new_val=jac_block)
             amend_trace(arg, jac_trace)
+        # Recurse once per unique upstream tensor after all local contributions
+        # have been accumulated.
+        seen = set()
         for argidx in argnums:
-            if isinstance(args[argidx], torch.Tensor) and hasattr(args[argidx], 'optrace'):
-                backward(args[argidx])
+            arg = args[argidx]
+            if isinstance(arg, torch.Tensor) and hasattr(arg, 'optrace'):
+                arg_id = id(arg)
+                if arg_id in seen:
+                    continue
+                seen.add(arg_id)
+                backward(arg, is_root=False)
+
+        # Consume intermediate trace to avoid re-propagating it when this node is
+        # reached again from another downstream branch (e.g. two index ops on one cat).
+        if hasattr(output_, 'jactrace'):
+            delattr(output_, 'jactrace')
 
 
     elif output_.optrace[id(output_)][0] == 'index':
@@ -220,6 +239,8 @@ def backward(output_):
         # populate Jacobian values. In this case, the Jacobian block values are
         # identity matrices placed at the indexed columns.
         if not hasattr(output_, 'jactrace'):
+            if not is_root:
+                return
             if output_.ndim == 1:
                 eye_blocks = torch.ones((output_.shape[0], 1, 1), device=output_.device, dtype=output_.dtype)
             else:
@@ -242,15 +263,20 @@ def backward(output_):
             
         amend_trace(arg, jac_trace)
         if isinstance(arg, torch.Tensor) and hasattr(arg, 'optrace'):
-            backward(arg)
+            backward(arg, is_root=False)
+
+        if hasattr(output_, 'jactrace'):
+            delattr(output_, 'jactrace')
 
     elif output_.optrace[id(output_)][0] == 'cat':
         dim = output_.optrace[id(output_)][1]
-        args = output_.optrace[id(output_)][2]
+        tracked = output_.optrace[id(output_)][2]  # ((start, end, arg), ...)
         if dim != 0:
             raise NotImplementedError("Only torch.cat(..., dim=0) is supported")
 
         if not hasattr(output_, 'jactrace'):
+            if not is_root:
+                return
             if output_.ndim == 1:
                 eye_blocks = torch.ones((output_.shape[0], 1, 1), device=output_.device, dtype=output_.dtype)
             else:
@@ -260,11 +286,8 @@ def backward(output_):
             output_.jactrace = (None, eye_blocks)
 
         upstream = output_.jactrace
-        offset = 0
-        for arg in args:
+        for start, end, arg in tracked:
             n = arg.shape[0]
-            start, end = offset, offset + n
-
             if type(upstream) is tuple:
                 jac_trace = _slice_upstream_tuple_columns(
                     upstream[0], upstream[1], start, end, out_cols_blocks=n
@@ -278,23 +301,30 @@ def backward(output_):
 
             amend_trace(arg, jac_trace)
             if isinstance(arg, torch.Tensor) and hasattr(arg, 'optrace'):
-                backward(arg)
-            offset = end
+                backward(arg, is_root=False)
+
+        if hasattr(output_, 'jactrace'):
+            delattr(output_, 'jactrace')
 
 
 def jacobian(output, params):
     assert output.optrace[id(output)][0] in ('map', 'index', 'cat'), "Unsupported last operation in compute graph"
     _clear_jactrace(output, params)
     try:
-        backward(output)
+        backward(output, is_root=True)
         res = []
         for param in params:
             if hasattr(param, 'jactrace'):
                 if isinstance(param.jactrace, tuple):
-                    values = trim_parameter_jacobian_values(param, param.jactrace[1])
-                    param.jactrace = (param.jactrace[0], values)
+                    indices, values = param.jactrace
+                    values = trim_parameter_jacobian_values(param, values, block_indices=indices)
+                    param.jactrace = (indices, values)
                 elif isinstance(param.jactrace, torch.Tensor) and param.jactrace.layout == torch.sparse_bsr:
-                    values = trim_parameter_jacobian_values(param, param.jactrace.values())
+                    values = trim_parameter_jacobian_values(
+                        param,
+                        param.jactrace.values(),
+                        block_indices=param.jactrace.col_indices(),
+                    )
                     if values.shape != param.jactrace.values().shape:
                         param.jactrace = torch.sparse_bsr_tensor(
                             col_indices=param.jactrace.col_indices(),

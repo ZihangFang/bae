@@ -13,4 +13,6 @@ task.md
 *.png
 .DS_Store
 tmp/*
+examples/module/pgo/data/*
+examples/module/pgo/save/*
 pypose_clone/
