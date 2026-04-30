@@ -153,12 +153,37 @@ Bundle Adjustment optimizes camera poses and 3D point positions to minimize repr
 ```python
 import torch
 import pypose as pp
+from pypose.autograd.function import psjac
 from datapipes.bal_loader import get_problem
-from ba_helpers import ReprojNonBatched, least_square_error
-from bae.sparse.py_ops import *
-from bae.sparse.solve import *
 from bae.optim import LM
 from bae.utils.pysolvers import PCG
+
+
+class Reproj(torch.nn.Module):
+    def __init__(self, camera_params, points):
+        super().__init__()
+        self.pose = pp.Parameter(camera_params, sjac=True)
+        self.points = pp.Parameter(points, sjac=True)
+        self.pose.trim_SE3_grad = True
+    
+    # Define the projection residual with structured Jacobian support
+    @psjac
+    def project(points, camera_params):
+        projection = pp.SE3(camera_params[..., :7]).Act(points)
+        projection = -projection[..., :2] / projection[..., [2]]
+
+        f = camera_params[..., [-3]]
+        k1 = camera_params[..., [-2]]
+        k2 = camera_params[..., [-1]]
+
+        n = torch.sum(projection**2, axis=-1, keepdim=True)
+        r = 1 + k1 * n + k2 * n**2
+        return projection * r * f
+
+    def forward(self, observes, cidx, pidx):
+        points_proj = Reproj.project(self.points[pidx], self.pose[cidx])
+        return points_proj - observes
+
 
 # Load a problem from the BAL dataset
 dataset = get_problem("problem-49-7776-pre", "ladybug", use_quat=True)
@@ -166,15 +191,15 @@ dataset = {k: v.to('cuda') for k, v in dataset.items() if isinstance(v, torch.Te
 
 # Prepare input for the optimization
 input = {
-    "points_2d": dataset['points_2d'],
-    "camera_indices": dataset['camera_index_of_observations'],
-    "point_indices": dataset['point_index_of_observations']
+    "observes": dataset['points_2d'],
+    "cidx": dataset['camera_index_of_observations'],
+    "pidx": dataset['point_index_of_observations'],
 }
 
 # Initialize model with camera parameters and 3D points
 model = Reproj(
     dataset['camera_params'].clone(),
-    dataset['points_3d'].clone()
+    dataset['points_3d'].clone(),
 ).to('cuda')
 
 # Configure optimizer
