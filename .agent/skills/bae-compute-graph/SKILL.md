@@ -1,13 +1,13 @@
 ---
 name: bae-compute-graph
-description: Use when defining or modifying BAE compute graphs, sparse Jacobian traces, bundle adjustment or pose graph optimization problems, or any code using `TrackingTensor`, `pypose.Parameter`, `map_transform`, or `bae.autograd.graph.jacobian`.
+description: Use when defining or modifying BAE compute graphs, sparse Jacobian traces, bundle adjustment or pose graph optimization problems, or any code using `pp.Parameter`, `psjac`, or `bae.autograd.graph.jacobian`.
 ---
 
 # BAE Compute Graph
 
 ## Core mental model
 - The forward pass records a lightweight operation trace on tensors.
-- `TrackingTensor` preserves PyPose `LieTensor` type information, so tracked `pp.SE3` values stay LieTensor-aware through `nn.Parameter(...)`, tensor indexing, LieTensor operations, and concatenation, `torch.cat(..., dim=0)`.
+- `pp.Parameter(..., sjac=True)` preserves PyPose `LieTensor` type information, so tracked `pp.SE3` values stay LieTensor-aware through tensor indexing, LieTensor operations, and concatenation, `torch.cat(..., dim=0)`.
 - The sparse autograd logic classifies operations mainly by their effect on the Jacobian:
   - `index`: determines sparse block-column layout.
   - `map`: computes Jacobian block values.
@@ -19,12 +19,12 @@ description: Use when defining or modifying BAE compute graphs, sparse Jacobian 
 - Internally, intermediate Jacobians may be stored as `(indices, values)` before they are materialized as sparse BSR tensors at the leaves. `indices=None` means the current trace still has identity column layout and only carries block values.
 
 ## Authoring recipe
-1. Wrap each optimizable state as `nn.Parameter(TrackingTensor(data))`.
-2. If `data` is already a true PyPose `LieTensor` such as `pp.SE3(nodes)`, keep it that way. The tracked parameter wrapped by `TrackingTensor` will stay LieTensor-aware, and its optimizer step shape is inferred automatically from `parameter_update_shape(...)`.
+1. Wrap each optimizable state as `pp.Parameter(data, sjac=True)`.
+2. If `data` is already a true PyPose `LieTensor` such as `pp.SE3(nodes)`, keep it that way. The `pp.Parameter` with `sjac=True` will stay LieTensor-aware, and its optimizer step shape is inferred automatically from `parameter_update_shape(...)`.
 3. The usage of `param.trim_SE3_grad = True` is not recommended. It is only for mixed ambient tensor layouts, such as a stored 7D quaternion pose or a pose-plus-extra-parameters tensor whose SE(3) portion should optimize on a 6D tangent space. Consider this an escape hatch for legacy code or special cases, not a general pattern. When using `trim_SE3_grad`, the user must ensure the first 7 entries of the parameter tensor encode SE(3) to ensure compatability.
-4. Define each custom per-factor residual block with `@map_transform`.
+4. Define each custom per-factor residual block with `@psjac` (imported from `pypose.autograd.function`).
 5. In `forward()`, gather participating states by tensor indexing such as `self.pose[camera_idx]` or `self.nodes[edges[..., 0]]`. Indexed tracked LieTensor values preserve their LieTensor behavior.
-6. Combine factor groups or rebuilt state tables with `torch.cat(..., dim=0)` if needed. Other concatenation mode is only supported inside `@map_transform`.
+6. Combine factor groups or rebuilt state tables with `torch.cat(..., dim=0)` if needed. Other concatenation mode is only supported inside `@psjac`.
 7. Return the residual tensor. `LM.step()` will call `bae.autograd.graph.jacobian(...)` on it to automatically derive the sparse Jacobian.
 
 ## What each tracked op means
@@ -37,7 +37,7 @@ description: Use when defining or modifying BAE compute graphs, sparse Jacobian 
 - When the indexed source is a tracked PyPose `LieTensor`, the indexed result remains LieTensor-aware, so downstream code can keep using native LieTensor methods such as `.Inv()`, `.Log()`, or `.Act(...)`.
 
 ### `map`
-- Use `@map_transform` for a vectorized residual function that maps indexed inputs to per-factor residuals.
+- Use `@psjac` for a vectorized residual function that maps indexed inputs to per-factor residuals.
 - Simple tracked arithmetic such as `+`, `-`, and `*` is also recorded as a `map` op through `WHITELISTED_MAPS`, so expressions like `pred - obs` can stay inline.
 - The backward pass computes local Jacobian blocks with `torch.vmap(jacrev(func, argnums=...))`.
 - Those local blocks are then chained with any upstream Jacobian already attached to the output trace.
@@ -54,8 +54,8 @@ description: Use when defining or modifying BAE compute graphs, sparse Jacobian 
 
 ## Hard constraints and gotchas
 - The final residual trace must end in one of: `map`, `index`, or `cat(dim=0)`.
-- Automatic indexing trace capture only happens when `TrackingTensor.__getitem__` receives a tensor index through PyTorch dispatch. Plain Python slicing is not the main supported sparse-layout path.
-- `map_transform` functions must be compatible with `jacrev` and effectively batch-vectorized for `vmap`.
+- Automatic indexing trace capture happens when a `pp.Parameter(..., sjac=True)` is indexed with a tensor index. Plain Python slicing is not the main supported sparse-layout path.
+- `psjac` functions must be compatible with `jacrev` and effectively batch-vectorized for `vmap`.
 - Only `torch.cat(..., dim=0)` is supported.
 - If a parameter never appears in observations, its block-columns will be empty. The authors explicitly treat this as a structural failure because it will cause the solver to fail.
 - Jacobian column counts and optimizer step views follow `parameter_update_shape(param)`:

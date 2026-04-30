@@ -13,20 +13,22 @@ This file is intentionally self-contained. Use it as the canonical recipe for a 
 ## Parameter setup
 
 ```python
+import pypose as pp
+from pypose.autograd.function import psjac
+
 class PoseGraph(nn.Module):
     def __init__(self, nodes):
         super().__init__()
-        self.nodes = nn.Parameter(TrackingTensor(nodes))
-        self.nodes.trim_SE3_grad = True
+        self.nodes = pp.Parameter(nodes, sjac=True)
 ```
 
 - `self.nodes` is typically shape `(num_nodes, 7)` in quaternion SE(3) storage.
-- `trim_SE3_grad = True` converts each stored pose block into a 6D optimized tangent-space block.
+- `pp.Parameter(..., sjac=True)` automatically handles the 6D tangent-space optimization.
 
 ## Edge residual map
 
 ```python
-@map_transform
+@psjac
 def edge_residual(poses, node1, node2, infos):
     residual = (pp.SE3(poses).Inv() @ pp.SE3(node1).Inv() @ pp.SE3(node2)).Log().tensor()
     residual = infos @ residual[..., None]

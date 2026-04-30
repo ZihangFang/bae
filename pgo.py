@@ -6,7 +6,7 @@ import torch
 import argparse
 import pypose as pp
 from torch import nn
-from bae.autograd.function import TrackingTensor, map_transform
+from pypose.autograd.function import psjac
 
 from bae.utils.pgo_dataset import G2OPGO
 from bae.utils.pgo import plot_and_save, render_frame, save_gif
@@ -63,9 +63,6 @@ def write_ceres_txt(nodes, filename='data.s'):
             f.write(f'{i} {node[0].item()} {node[1].item()} {node[2].item()} {node[3].item()} {node[4].item()} {node[5].item()} {node[6].item()}\n')
 
 def _pose_graph_residual(poses, node1, node2, infos):
-    if isinstance(infos, TrackingTensor):
-        infos = infos.tensor()
-
     pose_ab_est = node1.Inv() @ node2
     r_p = pose_ab_est.translation() - poses.translation()
     # Match Ceres pose_graph_3d: 2 * vec(q_meas * q_est^{-1}).
@@ -77,7 +74,7 @@ def _pose_graph_residual(poses, node1, node2, infos):
     return residual[..., 0]
 
 
-@map_transform
+@psjac
 def pose_graph_residual(poses, node1, node2, infos):
     return _pose_graph_residual(poses, node1, node2, infos)
 
@@ -85,7 +82,7 @@ class PoseGraph(nn.Module):
 
     def __init__(self, nodes):
         super().__init__()
-        self.nodes = nn.Parameter(TrackingTensor(nodes))
+        self.nodes = pp.Parameter(nodes, sjac=True)
 
     def forward(self, edges, poses, infos):
         node1 = self.nodes[edges[..., 0]]
@@ -96,7 +93,7 @@ class PoseGraph(nn.Module):
 class PoseGraphFixedFirst(nn.Module):
     def __init__(self, nodes_rest):
         super().__init__()
-        self.nodes_rest = nn.Parameter(TrackingTensor(nodes_rest))
+        self.nodes_rest = pp.Parameter(nodes_rest, sjac=True)
 
     def nodes_all(self, node_fixed):
         return torch.cat([node_fixed, self.nodes_rest], dim=0)
