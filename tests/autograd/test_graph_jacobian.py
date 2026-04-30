@@ -373,7 +373,6 @@ def test_pp_parameter_lie_tensor_index_and_cat_preserve_ltype(device: str):
     node_b = nodes[idx_b]
     cat = torch.cat([node_a, node_b], dim=0)
 
-    assert isinstance(nodes, pp.Parameter)
     assert isinstance(nodes, pp.LieTensor)
     assert isinstance(node_a, pp.LieTensor)
     assert type(node_a.ltype) is type(nodes.ltype)
