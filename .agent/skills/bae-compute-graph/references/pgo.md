@@ -23,7 +23,7 @@ class PoseGraph(nn.Module):
 ```
 
 - `self.nodes` is typically shape `(num_nodes, 7)` in quaternion SE(3) storage.
-- `pp.Parameter(..., sjac=True)` automatically handles the 6D tangent-space optimization.
+- `pp.Parameter(..., sjac=True)` notifies `bae` to produce sparse Jacobian. Wrap the original batched tensor before performing any operation. If you use a regular tensor or LieTensor instead, the sparse backend will not recover the Jacobian for the tensor. 
 
 ## Edge residual map
 

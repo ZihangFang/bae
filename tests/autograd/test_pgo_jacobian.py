@@ -18,7 +18,7 @@ os.environ.setdefault("BAE_USE_PYPOSE_AMBIENT_GRAD", "1")
 from bae.autograd.graph import jacobian as sparse_jacobian  # noqa: E402
 from bae.utils.retraction_jacobian import se3_retraction_jacobian  # noqa: E402
 from bae.utils.pgo_dataset import G2OPGO  # noqa: E402
-from pgo import PoseGraph, PoseGraphFixedFirst, _pose_graph_residual  # noqa: E402
+from pgo import PoseGraph, PoseGraphFixedFirst, pose_graph_residual  # noqa: E402
 
 
 pytestmark = [
@@ -30,15 +30,6 @@ pytestmark = [
 _PARKING_DATAROOT = _REPO_ROOT / "examples" / "module" / "pgo" / "data"
 _PARKING_FILENAME = "parking-garage.g2o"
 _JACOBIAN_EDGE_SUBSET = 16
-
-
-def _dense_residual(
-    poses: torch.Tensor,
-    node1: torch.Tensor,
-    node2: torch.Tensor,
-    infos: torch.Tensor,
-) -> torch.Tensor:
-    return _pose_graph_residual(poses, node1, node2, infos)
 
 
 def _flatten_jac(jac: torch.Tensor) -> torch.Tensor:
@@ -90,7 +81,7 @@ def test_pose_graph_residual_matches_ceres_closed_form():
     delta_q = pp.SO3(poses[:, 3:7]) @ q_ab_est.Inv()
     expected = torch.cat((p_ab_est - poses[:, :3], 2.0 * delta_q.tensor()[..., :3]), dim=-1)
 
-    actual = _pose_graph_residual(poses, nodes[:1], nodes[1:2], infos)
+    actual = pose_graph_residual(poses, nodes[:1], nodes[1:2], infos)
     torch.testing.assert_close(actual, expected, rtol=1e-7, atol=1e-7)
 
 
@@ -125,7 +116,7 @@ def test_pgo_jacobian_gauge_free_sparse_matches_dense():
     assert J_sparse.layout == torch.sparse_bsr
 
     def f(nodes: torch.Tensor) -> torch.Tensor:
-        return _pose_graph_residual(poses, pp.SE3(nodes)[edges[:, 0]], pp.SE3(nodes)[edges[:, 1]], infos)
+        return pose_graph_residual(poses, pp.SE3(nodes)[edges[:, 0]], pp.SE3(nodes)[edges[:, 1]], infos)
 
     J_dense = jacrev(f)(nodes0.tensor())
     J_dense = _localize_pose_blocks_se3(_flatten_jac(J_dense), nodes0.tensor())
@@ -151,7 +142,7 @@ def test_pgo_jacobian_fixed_first_sparse_matches_dense():
 
     def f(nodes_rest: torch.Tensor) -> torch.Tensor:
         nodes = torch.cat([node_fixed, nodes_rest], dim=0)
-        return _pose_graph_residual(poses, pp.SE3(nodes)[edges[:, 0]], pp.SE3(nodes)[edges[:, 1]], infos)
+        return pose_graph_residual(poses, pp.SE3(nodes)[edges[:, 0]], pp.SE3(nodes)[edges[:, 1]], infos)
 
     J_dense = jacrev(f)(nodes_rest0.tensor())
     J_dense = _localize_pose_blocks_se3(_flatten_jac(J_dense), nodes_rest0.tensor())

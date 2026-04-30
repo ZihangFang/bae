@@ -6,7 +6,7 @@ description: Use when defining or modifying BAE compute graphs, sparse Jacobian 
 # BAE Compute Graph
 
 ## Core mental model
-- The forward pass records a lightweight operation trace on tensors.
+- The forward pass records a lightweight operation trace on tensors, done through wrapping a optimizable parameter with `pp.Parameter(..., sjac=True)`.
 - `pp.Parameter(..., sjac=True)` preserves PyPose `LieTensor` type information, so tracked `pp.SE3` values stay LieTensor-aware through tensor indexing, LieTensor operations, and concatenation, `torch.cat(..., dim=0)`.
 - The sparse autograd logic classifies operations mainly by their effect on the Jacobian:
   - `index`: determines sparse block-column layout.
