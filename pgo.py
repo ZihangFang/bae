@@ -25,44 +25,9 @@ DTYPE_CHOICES = {
 
 torch.set_printoptions(precision=6)
 
-def diff(residual=None, jacobian=None):
-    num_factors = residual.shape[0] if residual is not None else jacobian.shape[0]
-    import numpy as np
-    with open('data.s', 'r') as f:
-        ceres_residuals = []
-        ceres_jacobians = []
-        for i in range(num_factors):
-        # read from 'data.s'
-            data = f.readline()
-            discard_left = data.split('[')[1:]
-            discard_right = [x.split(']')[0] for x in discard_left]
-            discard_semi = [x.split(';') for x in discard_right]
-            # convert to float
-            ceres_residual = [float(y[0]) for y in discard_semi]
-            ceres_residuals.append(ceres_residual)
-            
-            ceres_jacobian = [np.fromstring(y[1], sep=',') for y in discard_semi]
-            ceres_jacobians.append(ceres_jacobian)
-    ceres_residuals = torch.tensor(ceres_residuals)
-    ceres_jacobians = torch.tensor(ceres_jacobians)
-    if residual is not None:
-        ceres_residuals = ceres_residuals - residual
-        # absolute difference
-        print(ceres_residuals.norm(dim=-1).mean())
-        # relative difference
-        print(((ceres_residuals.norm(dim=-1) / residual.norm(dim=-1)))[1:].mean())
-    if jacobian is not None:
-        ceres_jacobians = ceres_jacobians - jacobian
-        # absolute difference
 
-def write_ceres_txt(nodes, filename='data.s'):
-    with open(filename, 'w') as f:
-        # ID x y z q_x q_y q_z q_w
-        for i in range(nodes.shape[0]):
-            node = nodes[i]
-            f.write(f'{i} {node[0].item()} {node[1].item()} {node[2].item()} {node[3].item()} {node[4].item()} {node[5].item()} {node[6].item()}\n')
-
-def _pose_graph_residual(poses, node1, node2, infos):
+@psjac
+def pose_graph_residual(poses, node1, node2, infos):
     pose_ab_est = node1.Inv() @ node2
     r_p = pose_ab_est.translation() - poses.translation()
     # Match Ceres pose_graph_3d: 2 * vec(q_meas * q_est^{-1}).
@@ -73,10 +38,6 @@ def _pose_graph_residual(poses, node1, node2, infos):
     residual = infos @ residual[..., None]
     return residual[..., 0]
 
-
-@psjac
-def pose_graph_residual(poses, node1, node2, infos):
-    return _pose_graph_residual(poses, node1, node2, infos)
 
 class PoseGraph(nn.Module):
 
@@ -207,7 +168,6 @@ if __name__ == '__main__':
         nodes_current = graph.nodes
     plot_and_save(nodes_current.translation(), name+'.png', title)
     torch.save(graph.state_dict(), name+'.pt')
-    write_ceres_txt(nodes_current.tensor(), name+'.txt')
     if args.gif:
         save_gif(gif_frames, sample_prefix + '.gif', duration=args.gif_duration)
 
