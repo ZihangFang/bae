@@ -3,11 +3,10 @@ from time import perf_counter
 import pypose as pp
 import torch
 import torch.nn as nn
+from pypose.autograd.function import psjac
 
 from datapipes.bal_loader import get_problem
-from bae.autograd.function import TrackingTensor, map_transform
 from bae.optim import LM
-from bae.utils.ba import rotate_quat
 from bae.utils.pysolvers import PCG
 
 TARGET_DATASET = "trafalgar"
@@ -23,9 +22,9 @@ OPTIMIZE_INTRINSICS = True
 NUM_CAMERA_PARAMS = 10 if OPTIMIZE_INTRINSICS else 7
 
 
-@map_transform
+@psjac
 def project(points, camera_params):
-    projection = rotate_quat(points, camera_params[..., :7])
+    projection = pp.SE3(camera_params[..., :7]).Act(points)
     projection = -projection[..., :2] / projection[..., [2]]
 
     f = camera_params[..., [-3]]
@@ -40,8 +39,8 @@ def project(points, camera_params):
 class Residual(nn.Module):
     def __init__(self, camera_params, points):
         super().__init__()
-        self.pose = nn.Parameter(TrackingTensor(camera_params))
-        self.points = nn.Parameter(TrackingTensor(points))
+        self.pose = pp.Parameter(camera_params, sjac=True)
+        self.points = pp.Parameter(points, sjac=True)
         self.pose.trim_SE3_grad = True
 
     def forward(self, observes, cidx, pidx):

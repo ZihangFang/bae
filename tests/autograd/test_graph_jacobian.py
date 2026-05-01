@@ -8,7 +8,7 @@ from torch.func import jacrev
 
 os.environ.setdefault("BAE_USE_PYPOSE_AMBIENT_GRAD", "1")
 
-from bae.autograd.function import TrackingTensor as Track, map_transform
+from pypose.autograd.function import psjac
 from bae.autograd.graph import jacobian as sparse_jacobian
 from bae.utils.retraction_jacobian import se3_retraction_jacobian
 from bae.utils.pypose_ambient_grad import (
@@ -24,8 +24,8 @@ if pypose_ambient_grad_enabled():
 class ToyResidual(nn.Module):
     def __init__(self, A: torch.Tensor, B: torch.Tensor):
         super().__init__()
-        self.A = nn.Parameter(Track(A))
-        self.B = nn.Parameter(Track(B))
+        self.A = pp.Parameter(A, sjac=True)
+        self.B = pp.Parameter(B, sjac=True)
 
     def forward(
         self,
@@ -51,12 +51,12 @@ def _localize_pose_blocks_se3(jac_dense: torch.Tensor, nodes: torch.Tensor) -> t
     return torch.einsum("bni,nij->bnj", jac_dense, plus).reshape(jac_dense.shape[0], nodes.shape[0] * 6)
 
 
-@map_transform
+@psjac
 def _relative_se3_residual(poses: pp.LieTensor, node1: pp.LieTensor, node2: pp.LieTensor) -> torch.Tensor:
     return (poses.Inv() @ node1.Inv() @ node2).Log().tensor()
 
 
-@map_transform
+@psjac
 def _cat_inside_map(points: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
     u = points[..., :1] * scale[..., :1]
     v = points[..., 1:2] * scale[..., 1:2]
@@ -120,7 +120,7 @@ def test_sparse_jacobian_last_op_indexing_is_identity(device: str):
     A0 = torch.randn(num_a, dim, device=device, dtype=dtype, requires_grad=True)
     idx_a = torch.randint(0, num_a, (n,), device=device, dtype=torch.int32)
 
-    model = nn.Parameter(Track(A0))
+    model = pp.Parameter(A0, sjac=True)
     out = model[idx_a]
 
     (J_sparse,) = sparse_jacobian(out, [model])
@@ -137,7 +137,7 @@ def test_sparse_jacobian_last_op_indexing_is_identity(device: str):
 class MapCatResidual(nn.Module):
     def __init__(self, points: torch.Tensor):
         super().__init__()
-        self.points = nn.Parameter(Track(points))
+        self.points = pp.Parameter(points, sjac=True)
 
     def forward(
         self,
@@ -149,7 +149,7 @@ class MapCatResidual(nn.Module):
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_sparse_jacobian_map_transform_treats_inner_cat_as_opaque(device: str):
+def test_sparse_jacobian_psjac_treats_inner_cat_as_opaque(device: str):
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA not available")
 
@@ -187,8 +187,8 @@ def test_sparse_jacobian_map_transform_treats_inner_cat_as_opaque(device: str):
 class CatResidual(nn.Module):
     def __init__(self, A: torch.Tensor, B: torch.Tensor):
         super().__init__()
-        self.A = nn.Parameter(Track(A))
-        self.B = nn.Parameter(Track(B))
+        self.A = pp.Parameter(A, sjac=True)
+        self.B = pp.Parameter(B, sjac=True)
 
     def forward(
         self,
@@ -253,8 +253,8 @@ def test_sparse_jacobian_cat_dim0_matches_torch_jacrev(device: str):
 class CatSubResidual(nn.Module):
     def __init__(self, A: torch.Tensor, B: torch.Tensor):
         super().__init__()
-        self.A = nn.Parameter(Track(A))
-        self.B = nn.Parameter(Track(B))
+        self.A = pp.Parameter(A, sjac=True)
+        self.B = pp.Parameter(B, sjac=True)
 
     def forward(
         self,
@@ -319,8 +319,8 @@ def test_sparse_jacobian_cat_minus_cat_matches_torch_jacrev(device: str):
 class CatIndexResidual(nn.Module):
     def __init__(self, A: torch.Tensor, B: torch.Tensor):
         super().__init__()
-        self.A = nn.Parameter(Track(A))
-        self.B = nn.Parameter(Track(B))
+        self.A = pp.Parameter(A, sjac=True)
+        self.B = pp.Parameter(B, sjac=True)
 
     def forward(self, obs: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
         cat = torch.cat([self.A, self.B], dim=0)
@@ -358,14 +358,14 @@ def test_sparse_jacobian_index_after_cat_matches_torch_jacrev(device: str):
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_tracking_lie_tensor_index_and_cat_preserve_ltype(device: str):
+def test_pp_parameter_lie_tensor_index_and_cat_preserve_ltype(device: str):
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA not available")
 
     torch.manual_seed(0)
     dtype = torch.float64
 
-    nodes = nn.Parameter(Track(pp.randn_SE3(5, device=device, dtype=dtype)))
+    nodes = pp.Parameter(pp.randn_SE3(5, device=device, dtype=dtype), sjac=True)
     idx_a = torch.tensor([0, 2, 4], device=device, dtype=torch.int64)
     idx_b = torch.tensor([1, 3, 4], device=device, dtype=torch.int64)
 
@@ -373,9 +373,7 @@ def test_tracking_lie_tensor_index_and_cat_preserve_ltype(device: str):
     node_b = nodes[idx_b]
     cat = torch.cat([node_a, node_b], dim=0)
 
-    assert isinstance(nodes, Track)
     assert isinstance(nodes, pp.LieTensor)
-    assert isinstance(node_a, Track)
     assert isinstance(node_a, pp.LieTensor)
     assert type(node_a.ltype) is type(nodes.ltype)
     assert hasattr(node_a, "optrace")
@@ -387,7 +385,6 @@ def test_tracking_lie_tensor_index_and_cat_preserve_ltype(device: str):
     assert isinstance(node_a.Inv(), pp.LieTensor)
     assert isinstance(node_a.Log(), pp.LieTensor)
 
-    assert isinstance(cat, Track)
     assert isinstance(cat, pp.LieTensor)
     assert type(cat.ltype) is type(nodes.ltype)
     assert hasattr(cat, "optrace")
@@ -410,7 +407,7 @@ def test_sparse_jacobian_matches_lie_tensor_pgo_residual(device: str):
     idx1 = torch.tensor([0, 1, 2, 3], device=device, dtype=torch.int64)
     idx2 = torch.tensor([1, 2, 3, 4], device=device, dtype=torch.int64)
 
-    model = nn.Parameter(Track(nodes0))
+    model = pp.Parameter(nodes0, sjac=True)
     out = _relative_se3_residual(poses, model[idx1], model[idx2])
 
     (J_sparse,) = sparse_jacobian(out, [model])
