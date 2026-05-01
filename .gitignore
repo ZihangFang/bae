@@ -16,3 +16,5 @@ tmp/*
 examples/module/pgo/data/*
 examples/module/pgo/save/*
 pypose_clone/
+.devcontainer/devcontainer-lock.json
+.claude/settings.local.json
