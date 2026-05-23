@@ -24,17 +24,17 @@
   <tr>
     <td align="center" width="33%">
       <p align="center" width="100%">
-        <img src="https://github.com/sair-lab/bae/blob/gh-page/docs/assets/garden_half.gif?raw=true" alt="Garden bundle adjustment example" width="100%" />
+        <img src="https://github.com/sair-lab/bae/blob/product-page/docs/assets/garden_half.gif?raw=true" alt="Garden bundle adjustment example" width="100%" />
       </p>
     </td>
     <td align="center" width="33%">
       <p align="center" width="100%">
-        <img src="https://github.com/sair-lab/bae/blob/gh-page/docs/assets/counter_half.gif?raw=true" alt="Counter bundle adjustment example" width="100%" />
+        <img src="https://github.com/sair-lab/bae/blob/product-page/docs/assets/counter_half.gif?raw=true" alt="Counter bundle adjustment example" width="100%" />
       </p>
     </td>
     <td align="center" width="33%">
       <p align="center" width="100%">
-        <img src="https://github.com/sair-lab/bae/blob/gh-page/docs/assets/kitchen_half.gif?raw=true" alt="Kitchen bundle adjustment example" width="100%" />
+        <img src="https://github.com/sair-lab/bae/blob/product-page/docs/assets/kitchen_half.gif?raw=true" alt="Kitchen bundle adjustment example" width="100%" />
       </p>
     </td>
   </tr>
@@ -52,13 +52,13 @@
 <table>
   <tr>
     <td align="center" width="33%">
-      <img src="https://github.com/sair-lab/bae/blob/gh-page/docs/assets/sphere_bignoise_vertex3.gif?raw=true" alt="Sphere big-noise optimization" width="100%" />
+      <img src="https://github.com/sair-lab/bae/blob/product-page/docs/assets/sphere_bignoise_vertex3.gif?raw=true" alt="Sphere big-noise optimization" width="100%" />
     </td>
     <td align="center" width="33%">
-      <img src="https://github.com/sair-lab/bae/blob/gh-page/docs/assets/grid3D.gif?raw=true" alt="3D grid optimization" width="100%" />
+      <img src="https://github.com/sair-lab/bae/blob/product-page/docs/assets/grid3D.gif?raw=true" alt="3D grid optimization" width="100%" />
     </td>
     <td align="center" width="33%">
-      <img src="https://github.com/sair-lab/bae/blob/gh-page/docs/assets/sphere_g2o.gif?raw=true" alt="Sphere g2o optimization" width="100%" />
+      <img src="https://github.com/sair-lab/bae/blob/product-page/docs/assets/sphere_g2o.gif?raw=true" alt="Sphere g2o optimization" width="100%" />
     </td>
   </tr>
   <tr>
