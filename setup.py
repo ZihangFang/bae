@@ -4,7 +4,7 @@ import sysconfig
 from setuptools import setup, find_packages
 from torch.utils.cpp_extension import CppExtension, CUDAExtension, BuildExtension
 
-VERSION = "0.2.3"
+VERSION = "0.2.4"
 
 def readme():
     """Read the README.md file for long description"""
