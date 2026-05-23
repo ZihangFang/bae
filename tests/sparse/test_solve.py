@@ -5,12 +5,12 @@ import pytest
 def _make_spd_system(n: int, dtype: torch.dtype, device: torch.device):
     spd = torch.rand(n + 1, n, dtype=dtype, device=device)
     A = spd.mT @ spd
-    A = A + (1e-3 * torch.eye(n, dtype=dtype, device=device))
+    A = A + torch.eye(n, dtype=dtype, device=device)
     b = torch.rand(n, dtype=dtype, device=device)
     return A.to_sparse_csr(), b
 
 
-@pytest.mark.parametrize("dtype", [torch.float64])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
 def test_cudss_preserves_rhs_shape(dtype):
     if not torch.cuda.is_available():
         pytest.skip("CUDA is required for CuDirectSparseSolver")
