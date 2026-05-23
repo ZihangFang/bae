@@ -4,15 +4,13 @@ from datetime import datetime
 import torch
 import pypose as pp
 import warp as wp
-from warp import sparse as wpsparse
-
 from ba_helpers import Reproj, least_square_error
 from bae.optim.optimizer import Schur
+from bae.optim.triton_kernel import sparse_bsr_mv
 from datapipes.bal_loader import get_problem, read_bal_data
 from bae.sparse.py_ops import *
 from bae.optim import LM
 from bae.utils.pysolvers import PCG, CuDSS
-from bae.sparse.warp_wrappers import format_vec_for_bsr
 import torch.nn as nn
 
 from bae.autograd.function import TrackingTensor, map_transform
@@ -20,11 +18,14 @@ from bae.utils.ba import rotate_quat
 
 TARGET_DATASET = "trafalgar"
 TARGET_PROBLEM = "problem-257-65132-pre"
-# other options:
 # TARGET_DATASET = "ladybug"
 # TARGET_PROBLEM = "problem-1723-156502-pre"
 # TARGET_DATASET = "dubrovnik"
 # TARGET_PROBLEM = "problem-356-226730-pre"
+# TARGET_DATASET = "final"
+# TARGET_PROBLEM = "problem-13682-4456117-pre"
+# TARGET_DATASET = "venice"
+# TARGET_PROBLEM = "problem-1778-993923-pre"
 
 DEVICE = "cuda"
 OPTIMIZE_INTRINSICS = True
@@ -81,20 +82,16 @@ class TrustRegion(pp.optim.strategy.TrustRegion):
         Jwp = kwargs.get("Jwp")
         if Jwp is not None:
             J = Jwp
+
         JD = None
+
         for i in range(len(D)):
-            if JD is None:
-                if Jwp is not None:
-                    Dwp = format_vec_for_bsr(D[i].flatten().contiguous(), J[i].block_shape)
-                    JD = wp.to_torch(wpsparse.bsr_mv(J[i], Dwp)).flatten()
-                else:
-                    JD = J[i] @ D[i].flatten()
+            if Jwp is not None:
+                JD_i = sparse_bsr_mv(J[i], D[i].flatten().contiguous()).flatten()
             else:
-                if Jwp is not None:
-                    Dwp = format_vec_for_bsr(D[i].flatten().contiguous(), J[i].block_shape)
-                    JD += wp.to_torch(wpsparse.bsr_mv(J[i], Dwp)).flatten()
-                else:
-                    JD += J[i] @ D[i].flatten()
+                JD_i = J[i] @ D[i].flatten()
+            JD = JD_i if JD is None else JD + JD_i
+            
         JD = JD[..., None]
         denom = -((JD).mT @ (2 * R.view_as(JD) + JD)).squeeze()
     
@@ -145,6 +142,8 @@ def main():
     warp_device = None
     warp_mempool_start_current = None
     warp_mempool_start_high = None
+    total_memory = None
+    nontorch_baseline = None
 
     dataset = get_problem(TARGET_PROBLEM, TARGET_DATASET, use_quat=USE_QUATERNIONS)
     dataset = {
@@ -171,6 +170,8 @@ def main():
             device=cuda_device,
             clear_history=True,
         )
+    else:
+        print("CUDA is not available; skipping CUDA memory tracking.")
 
     if REPORT_WARP_MEMPOOL and DEVICE.startswith("cuda"):
         try:
@@ -190,7 +191,7 @@ def main():
 
     strategy = TrustRegion(up=2.0, down=0.5**4)
     solver = PCG(tol=1e-4, maxiter=250)
-    optimizer = Schur(model, strategy=strategy, solver=solver, reject=30)
+    optimizer = Schur(model, strategy=strategy, solver=solver, reject=30, matrix_free_normal=True)
 
     print('Initial loss:', least_square_error(
         model.pose,
@@ -203,6 +204,10 @@ def main():
     if cuda_device is not None and torch.cuda.is_available():
         torch.cuda.synchronize(cuda_device)
         torch.cuda.reset_peak_memory_stats(cuda_device)
+        free_baseline, total_memory = torch.cuda.mem_get_info(cuda_device)
+        torch_reserved_baseline = torch.cuda.memory_reserved(cuda_device)
+        warp_current_baseline = (wp.get_mempool_used_mem_current(warp_device) if warp_device is not None else 0)
+        nontorch_baseline = ((total_memory - free_baseline) - torch_reserved_baseline - warp_current_baseline)
 
     start = perf_counter()
     for idx in range(20):
@@ -222,12 +227,23 @@ def main():
 
     if cuda_device is not None and torch.cuda.is_available():
         peak_allocated = torch.cuda.max_memory_allocated(cuda_device)
+
         try:
             peak_reserved = torch.cuda.max_memory_reserved(cuda_device)
         except AttributeError:
             peak_reserved = torch.cuda.max_memory_cached(cuda_device)
+
+        free_end, _ = torch.cuda.mem_get_info(cuda_device)
+        torch_reserved_end = torch.cuda.memory_reserved(cuda_device)
+        warp_current_end = (wp.get_mempool_used_mem_current(warp_device) if warp_device is not None else 0)
+        nontorch_end = ((total_memory - free_end) - torch_reserved_end - warp_current_end)
+        module_growth = nontorch_end - nontorch_baseline if nontorch_baseline is not None else None
+
         print(f"Peak CUDA memory allocated: {_format_bytes(peak_allocated)}")
         print(f"Peak CUDA memory reserved: {_format_bytes(peak_reserved)}")
+        print(f"Non-allocator CUDA memory (context + kernel modules): {_format_bytes(nontorch_end)}")
+        if module_growth is not None:
+            print(f"Kernel-module growth during run (Triton JIT binaries): {_format_bytes(module_growth)}")
 
     if warp_device is not None and warp_mempool_start_current is not None:
         try:
