@@ -95,7 +95,11 @@ class CuDirectSparseSolver {
         torch::Tensor operator()(torch::Tensor A, torch::Tensor b) {
             // std::cout << "cudss called_count: " << called_count << std::endl;
             TORCH_CHECK(A.is_sparse_csr(), "A must be a CSR matrix");
-            // TORCH_CHECK(b.dim() == 1, "b must be a 1D tensor");
+            TORCH_CHECK(
+                b.dim() == 1 || (b.dim() == 2 && b.size(1) == 1),
+                "b must be a 1D tensor or a 2D column tensor");
+
+            const auto rhs_shape = b.sizes();
             if (b.dim() == 2) {
                 b = b.squeeze(1);
             }
@@ -125,21 +129,22 @@ class CuDirectSparseSolver {
             cudssConfigCreate(&config);
             // cudssAlgType_t reorder_alg = CUDSS_ALG_3;
             // cudssConfigSet(config, CUDSS_CONFIG_REORDERING_ALG, &reorder_alg, sizeof(cudssAlgType_t));
-
+            
             if (values.type().scalarType() == torch::ScalarType::Double) {
                 double* values_ptr = values.data<double>();
                 double* b_ptr = b.data<double>();
                 double* x_ptr = x.data<double>();
                 cudssMatrixCreateDn(&b_mt, b.size(0), 1, b.size(0), b_ptr, CUDA_R_64F, CUDSS_LAYOUT_COL_MAJOR);
                 cudssMatrixCreateDn(&x_mt, x.size(0), 1, x.size(0), x_ptr, CUDA_R_64F, CUDSS_LAYOUT_COL_MAJOR);
-                cudssMatrixCreateCsr(&A_mt, A.size(0), A.size(1),  A._nnz(), rowOffsets, rowOffsets + crow.size(0), colIndices, values_ptr, CUDA_R_32I, CUDA_R_64F, CUDSS_MTYPE_SPD, CUDSS_MVIEW_FULL, CUDSS_BASE_ZERO);
+                cudssMatrixCreateCsr(&A_mt, A.size(0), A.size(1),  A._nnz(), rowOffsets, NULL, colIndices, values_ptr, CUDA_R_32I, CUDA_R_64F, CUDSS_MTYPE_SPD, CUDSS_MVIEW_FULL, CUDSS_BASE_ZERO);
             } else if (values.type().scalarType() == torch::ScalarType::Float) {
                 float* values_ptr = values.data<float>();
                 float* b_ptr = b.data<float>();
                 float* x_ptr = x.data<float>();
                 cudssMatrixCreateDn(&b_mt, b.size(0), 1, b.size(0), b_ptr, CUDA_R_32F, CUDSS_LAYOUT_COL_MAJOR);
                 cudssMatrixCreateDn(&x_mt, x.size(0), 1, x.size(0), x_ptr, CUDA_R_32F, CUDSS_LAYOUT_COL_MAJOR);
-                cudssMatrixCreateCsr(&A_mt, A.size(0), A.size(1),  A._nnz(), rowOffsets, rowOffsets + crow.size(0), colIndices, values_ptr, CUDA_R_32I, CUDA_R_32F, CUDSS_MTYPE_SPD, CUDSS_MVIEW_FULL, CUDSS_BASE_ZERO);
+                cudssMatrixCreateCsr(&A_mt, A.size(0), A.size(1),  A._nnz(), rowOffsets, NULL, colIndices, values_ptr, CUDA_R_32I, CUDA_R_32F, CUDSS_MTYPE_SPD, CUDSS_MVIEW_FULL, CUDSS_BASE_ZERO);
+                // https://docs.nvidia.com/cuda/archive/12.9.0/cudss/functions.html#:~:text=the%20dense%20matrix-,NULL%20is%20the%20only%20supported%20value%20as%204%2Darray%20CSR%20is%20not%20supported%20currently,-colIndices
             }
             //---------------------------------------------------------------------------------
             if (called_count == 0) {
@@ -212,7 +217,7 @@ class CuDirectSparseSolver {
             // cudssDestroy(handle);
         
             called_count++;
-            return x;
+            return x.view(rhs_shape);
         }
 };
     
