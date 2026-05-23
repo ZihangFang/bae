@@ -130,10 +130,6 @@ if __name__ == '__main__':
         if cudss_root:
             include_dirs.append(os.path.join(cudss_root, 'include'))
             library_dirs.append(os.path.join(cudss_root, 'lib'))
-            extra_compile_args['nvcc'].extend([
-                f'-I{cudss_root}/include',
-                f'-L{cudss_root}/lib',
-            ])
         else:
             # Fall back to distro installs when no explicit CuDSS root is configured.
             # Prefer the CUDA-13 package on systems where both CUDA-12 and CUDA-13 CuDSS are present.
