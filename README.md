@@ -97,43 +97,42 @@
 - PyTorch (2.0+)
 - (Optional) [CUDSS](https://developer.nvidia.com/cudss) (CUDA Sparse Solver library)
 
-### Setup Instructions
+### User Setup Instructions
+```
+python -m pip install git+https://github.com/pypose/bae.git
+```
 
-1. (Optional) Install CUDSS (recommended through package manager)
-   - For CUDA 12 (0.6.0)
+### Developer Setup Instructions
+
+1. (Optional) Install CUDSS with pip package manager.
+   - For CUDA 12.x, install `nvidia-cudss-cu12`. We verified `nvidia-cudss-cu12==0.6.0.5` and `nvidia-cudss-cu12==0.7.1.6` work with `bae`:
    ```bash
-   sudo apt install cudss=0.6.0-1 cudss0=0.6.0-1 cudss-cuda-12=0.6.0.5-1 \
-   libcudss0-cuda-12=0.6.0.5-1 libcudss0-dev-cuda-12=0.6.0.5-1 libcudss0-static-cuda-12=0.6.0.5-1  
+   pip install nvidia-cudss-cu12
    ```
-   - For CUDA 13
+   - For CUDA 13.x, install `nvidia-cudss-cu13`:
    ```bash
-   sudo apt install cudss-cuda-13
+   pip install nvidia-cudss-cu13
    ```
-3. Install PyPose:
+
+2. Install PyPose:
    ```bash
    pip install git+https://github.com/pypose/pypose.git
    ```
-4. Clone this repository:
+3. Clone this repository:
    ```bash
    git clone https://github.com/zitongzhan/bae.git
    cd bae
    ```
 
-5. Install dependencies:
+4. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-6. Install the package in development mode:
+5. Install the package in development mode:
    ```bash
    python -m pip install --no-build-isolation -v -e .  # following https://github.com/pytorch/pytorch
    ```
-
-### Build with CUDSS Tarball (unstable)
-If you are unable to install cudss with the system package manager, you can control the build process with these environment variables:
-
-- `USE_CUDSS`: Set to "1" (default) to enable CUDSS support, "0" to disable
-- `CUDSS_DIR`: Optional path to CUDSS installation directory if not in standard locations
 
 ## Agent Skills
 
