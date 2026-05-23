@@ -75,12 +75,11 @@ def resolve_cudss_link_inputs(cudss_root):
         nvcc_args.append('-lcudss')
     elif os.path.exists(versioned_shared_lib):
         extra_link_args.append(versioned_shared_lib)
+    elif os.path.exists(static_lib):
+        nvcc_args.append(f'-Xlinker={static_lib}')
     else:
         libraries.append('cudss')
         nvcc_args.append('-lcudss')
-
-    if os.path.exists(static_lib):
-        nvcc_args.append(f'-Xlinker={static_lib}')
 
     return libraries, extra_link_args, nvcc_args
 
