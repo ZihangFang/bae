@@ -180,33 +180,8 @@ def backward(output_):
             warning("No upstream parameters to compute jacobian")
             return
         
-        total_obs = args[0].shape[0] if len(args) > 0 else 0
-        max_obs_per_chunk = 50_000
-        if total_obs <= max_obs_per_chunk:
-            with pp.retain_ltype():
-                jac_blocks = torch.vmap(jacrev(func, argnums=argnums))(*args)
-        else:
-            chunks = []
-            with pp.retain_ltype():
-                for start in range(0, total_obs, max_obs_per_chunk):
-                    end = min(start + max_obs_per_chunk, total_obs)
-                    chunk_args = [a[start:end] for a in args]
-                    chunks.append(list(
-                        torch.vmap(jacrev(func, argnums=argnums))(*chunk_args)
-                    ))
-            n_args = len(argnums)
-            jac_blocks = []
-
-            for i in range(n_args):
-                parts = [c[i] for c in chunks]
-                jac_blocks.append(torch.cat(parts, dim=0))
-                del parts
-                
-                for c in chunks:
-                    c[i] = None
-
-            jac_blocks = tuple(jac_blocks)
-            del chunks
+        with pp.retain_ltype():
+            jac_blocks = torch.vmap(jacrev(func, argnums=argnums))(*args)
         for jacidx, argidx in enumerate(argnums):
             jac_block = jac_blocks[jacidx]
             arg = args[argidx]

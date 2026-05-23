@@ -16,37 +16,10 @@ from ..utils.parameter import parameter_update_shape
 
 
 class LM(ppLM):
-    def __init__(self, *args, matrix_free_normal: bool = False, loss_chunk_size: int = 100_000, **kwargs):
+    def __init__(self, *args, matrix_free_normal: bool = False, **kwargs):
         self.matrix_free_normal = matrix_free_normal
-        self.loss_chunk_size = loss_chunk_size
         super(LM, self).__init__(*args, **kwargs)
         self.mm = CuSparse()
-
-    def _chunked_model_loss(self, input, target=None):
-        m = self.model
-        if not isinstance(input, dict):
-            return m.loss(input, target)
-        obs_axis_keys = ("points_2d", "camera_indices", "point_indices")
-        if not all(k in input for k in obs_axis_keys):
-            return m.loss(input, target)
-        n = input["points_2d"].shape[0]
-        chunk = self.loss_chunk_size
-        if chunk <= 0 or n <= chunk:
-            return m.loss(input, target)
-
-        total = None
-        for start in range(0, n, chunk):
-            end = min(start + chunk, n)
-            chunk_input = {k: input[k][start:end] for k in obs_axis_keys}
-            output = m.model_forward(chunk_input)
-            chunk_residuals = m.residuals(output, target)
-            if len(m.kernel) > 1:
-                parts = [k(r.square().sum(-1)).sum() for k, r in zip(m.kernel, chunk_residuals)]
-            else:
-                parts = [m.kernel[0](r.square().sum(-1)).sum() for r in chunk_residuals]
-            chunk_loss = sum(parts)
-            total = chunk_loss if total is None else total + chunk_loss
-        return total
 
     @torch.no_grad()
     def step(self, input, target=None, weight=None):
@@ -61,7 +34,7 @@ class LM(ppLM):
             J = torch.cat([j.to_sparse_coo() for j in J_list], dim=-1).to_sparse_csr()
             del J_list
 
-            self.last = self.loss = self.loss if hasattr(self, 'loss') else self._chunked_model_loss(input, target)
+            self.last = self.loss = self.loss if hasattr(self, 'loss') else self.model.loss(input, target)
             self.reject_count = 0
 
             if self.matrix_free_normal:
@@ -88,7 +61,7 @@ class LM(ppLM):
                     print(e, "\nLinear solver failed. Breaking optimization step...")
                     break
                 self.update_parameter(pg['params'], D)
-                self.loss = self._chunked_model_loss(input, target)
+                self.loss = self.model.loss(input, target)
                 print("Loss:", self.loss, "Last Loss:", self.last, "Reject Count:", self.reject_count, "Damping:", pg['damping'])
                 self.strategy.update(pg, last=self.last, loss=self.loss, J=J, D=D, R=R.view(-1, 1))
                 if self.last < self.loss and self.reject_count < self.reject:  # reject step
@@ -130,7 +103,7 @@ class Schur(LM):
                 R = R.detach()
             torch.cuda.empty_cache()
 
-            self.last = self.loss = self.loss if hasattr(self, 'loss') else self._chunked_model_loss(input, target)
+            self.last = self.loss = self.loss if hasattr(self, 'loss') else self.model.loss(input, target)
 
             J0 = J[0]
             J1 = J[1]
@@ -242,7 +215,7 @@ class Schur(LM):
                 D_p_t = D_p.flatten()
                 D = torch.cat([D_c_t, D_p_t])
                 self.update_parameter(pg['params'], D)
-                self.loss = self._chunked_model_loss(input, target)
+                self.loss = self.model.loss(input, target)
                 print("Loss:", self.loss, "Last Loss:", self.last, "Reject Count:", self.reject_count, "Damping:", pg['damping'])
 
                 self.strategy.update(
