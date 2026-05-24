@@ -1,18 +1,20 @@
-import torch
-import pypose as pp
 from functools import partial
+import torch
 from pypose.optim import LevenbergMarquardt as ppLM
-from .triton_kernel import (
-    sparse_bsr_mm, sparse_bsr_mv,
-    sparse_bsr_transposed, sparse_bsr_axpy,
-    BlockJacobi, cg,
-)
+import pypose as pp
+
 from ..autograd.graph import jacobian
 from ..autograd.function import TrackingTensor
 from ..sparse.py_ops import diagonal_op_, inv_op
 from ..sparse.spgemm import CuSparse
 from ..utils.linear_operator import NormalMatVec
 from ..utils.parameter import parameter_update_shape
+
+from .triton_kernel import (
+    sparse_bsr_mm, sparse_bsr_mv,
+    sparse_bsr_transposed, sparse_bsr_axpy,
+    BlockJacobi, cg,
+)
 
 
 class LM(ppLM):
@@ -234,4 +236,3 @@ class Schur(LM):
                     break
 
         return self.loss
-
