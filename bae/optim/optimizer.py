@@ -143,7 +143,6 @@ class Schur(LM):
             if self.matrix_free_normal:
                 scratch_obs = torch.empty_like(R_flat)
                 scratch_pts = torch.empty_like(Ip)
-                z_buf = torch.empty_like(Ic)
 
             solver_tol = getattr(self.solver, "tol", None) or 1e-5
             solver_maxiter = getattr(self.solver, "maxiter", 0) or 0
