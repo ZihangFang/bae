@@ -1,3 +1,4 @@
+
 from typing import Optional
 import warnings
 
@@ -185,7 +186,6 @@ def backward(output_, is_root=False):
         if len(argnums) == 0:
             warnings.warn("No upstream parameters to compute jacobian", stacklevel=2)
             return
-        
         with pp.retain_ltype():
             jac_blocks = torch.vmap(jacrev(func, argnums=argnums))(*args)
         for jacidx, argidx in enumerate(argnums):
