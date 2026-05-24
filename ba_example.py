@@ -1,23 +1,15 @@
 from time import perf_counter
 from pathlib import Path
 from datetime import datetime
-import torch
-import pypose as pp
-import warp as wp
-from ba_helpers import Reproj, least_square_error
+from pypose.autograd.function import psjac
+from datapipes.bal_loader import get_problem
 from bae.optim.optimizer import Schur
 from bae.optim.triton_kernel import sparse_bsr_mv
-from datapipes.bal_loader import get_problem, read_bal_data
-from bae.sparse.py_ops import *
-from bae.optim import LM
-from bae.utils.pysolvers import PCG, CuDSS
-import torch.nn as nn
-from pypose.autograd.function import psjac
-
-from bae.autograd.function import TrackingTensor, map_transform
-from datapipes.bal_loader import get_problem
-from bae.optim import LM
 from bae.utils.pysolvers import PCG
+import pypose as pp
+import torch
+import torch.nn as nn
+import warp as wp
 
 TARGET_DATASET = "trafalgar"
 TARGET_PROBLEM = "problem-257-65132-pre"
@@ -33,8 +25,6 @@ TARGET_PROBLEM = "problem-257-65132-pre"
 DEVICE = "cuda"
 OPTIMIZE_INTRINSICS = True
 NUM_CAMERA_PARAMS = 10 if OPTIMIZE_INTRINSICS else 7
-
-USE_QUATERNIONS = True
 REPORT_WARP_MEMPOOL = True
 
 
@@ -42,15 +32,12 @@ def _format_bytes(num_bytes: int) -> str:
     sign = "-" if num_bytes < 0 else ""
     size = float(abs(num_bytes))
     units = ["B", "KiB", "MiB", "GiB", "TiB"]
-
     for unit in units:
         if size < 1024.0 or unit == units[-1]:
             break
         size /= 1024.0
-        
     if unit == "B":
         return f"{sign}{int(size)} {unit}"
-
     return f"{sign}{size:.2f} {unit}"
 
 
@@ -80,6 +67,12 @@ class Residual(nn.Module):
         return points_proj - observes
 
 
+def least_square_error(camera_params, points, cidx, pidx, observes):
+    model = Residual(camera_params, points)
+    loss = model(observes, cidx, pidx)
+    return torch.sum(loss**2, dim=-1).mean()
+
+
 class TrustRegion(pp.optim.strategy.TrustRegion):
     def update(self, pg, last, loss, J, D, R, *args, **kwargs):
         Jwp = kwargs.get("Jwp")
@@ -87,23 +80,22 @@ class TrustRegion(pp.optim.strategy.TrustRegion):
             J = Jwp
 
         JD = None
-
         for i in range(len(D)):
             if Jwp is not None:
                 JD_i = sparse_bsr_mv(J[i], D[i].flatten().contiguous()).flatten()
             else:
                 JD_i = J[i] @ D[i].flatten()
             JD = JD_i if JD is None else JD + JD_i
-            
+
         JD = JD[..., None]
         denom = -((JD).mT @ (2 * R.view_as(JD) + JD)).squeeze()
-    
+
         if loss >= last or denom <= 0:
             quality = -1.0
         else:
             quality = (last - loss) / denom
-        
-        pg['radius'] = 1. / pg['damping']
+
+        pg['radius'] = 1.0 / pg['damping']
         if quality > pg['high']:
             pg['radius'] = pg['up'] * pg['radius']
             pg['down'] = self.down
@@ -115,53 +107,32 @@ class TrustRegion(pp.optim.strategy.TrustRegion):
             pg['down'] = pg['down'] * pg['factor']
         pg['down'] = max(self.min, min(pg['down'], self.max))
         pg['radius'] = max(self.min, min(pg['radius'], self.max))
-        pg['damping'] = 1. / pg['radius']
-
-
-class Adaptive(pp.optim.strategy.Adaptive):
-    def update(self, pg, last, loss, J, D, R, *args, **kwargs):
-        J = [i.to_sparse_coo() for i in J]
-        JD = None
-        for i in range(len(D)):
-            if JD is None:
-                JD = J[i] @ D[i]
-            else:
-                JD += J[i] @ D[i]
-        JD = JD[..., None]
-        quality = (last - loss) / -((JD).mT @ (2 * R.view_as(JD) + JD)).squeeze()
-        if quality > pg['high']:
-            pg['damping'] = pg['damping'] * pg['down']
-        elif quality > pg['low']:
-            pg['damping'] = pg['damping']
-        else:
-            pg['damping'] = pg['damping'] * pg['up']
-        pg['damping'] = max(self.min, min(pg['damping'], self.max))
+        pg['damping'] = 1.0 / pg['radius']
 
 
 def main():
-    file_name = f'{TARGET_DATASET}.{TARGET_PROBLEM}'
+    file_name = f"{TARGET_DATASET}.{TARGET_PROBLEM}"
     cuda_device = torch.device(DEVICE) if DEVICE.startswith("cuda") else None
     memory_snapshot_path = None
     warp_device = None
     warp_mempool_start_current = None
     warp_mempool_start_high = None
-    total_memory = None
-    nontorch_baseline = None
 
-    dataset = get_problem(TARGET_PROBLEM, TARGET_DATASET, use_quat=USE_QUATERNIONS)
+    dataset = get_problem(TARGET_PROBLEM, TARGET_DATASET)
+    print(f"Fetched {TARGET_PROBLEM} from {TARGET_DATASET}")
+
     dataset = {
         key: value.to(DEVICE)
         for key, value in dataset.items()
         if isinstance(value, torch.Tensor)
     }
-
     input = {
-        "points_2d": dataset["points_2d"],
-        "camera_indices": dataset["camera_index_of_observations"],
-        "point_indices": dataset["point_index_of_observations"],
+        "observes": dataset["points_2d"],
+        "cidx": dataset["camera_index_of_observations"],
+        "pidx": dataset["point_index_of_observations"],
     }
 
-    if DEVICE.startswith("cuda") and torch.cuda.is_available():
+    if cuda_device is not None and torch.cuda.is_available():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         snapshot_dir = Path("memory_traces")
         snapshot_dir.mkdir(exist_ok=True)
@@ -173,8 +144,6 @@ def main():
             device=cuda_device,
             clear_history=True,
         )
-    else:
-        print("CUDA is not available; skipping CUDA memory tracking.")
 
     if REPORT_WARP_MEMPOOL and DEVICE.startswith("cuda"):
         try:
@@ -187,41 +156,37 @@ def main():
         except Exception as e:
             print(f"Warning: failed to query Warp mempool stats: {e}")
 
-    model = Reproj(
-        dataset['camera_params'][:, :NUM_CAMERA_PARAMS].clone(),
-        dataset['points_3d'].clone()
+    model = Residual(
+        dataset["camera_params"][:, :NUM_CAMERA_PARAMS].clone(),
+        dataset["points_3d"].clone(),
     ).to(DEVICE)
-
     strategy = TrustRegion(up=2.0, down=0.5**4)
     solver = PCG(tol=1e-4, maxiter=250)
     optimizer = Schur(model, strategy=strategy, solver=solver, reject=30, matrix_free_normal=True)
 
-    print('Initial loss:', least_square_error(
+    print('Loss:', least_square_error(
         model.pose,
-        model.points_3d,
-        dataset['camera_index_of_observations'],
-        dataset['point_index_of_observations'],
-        dataset['points_2d'],
+        model.points,
+        dataset["camera_index_of_observations"],
+        dataset["point_index_of_observations"],
+        dataset["points_2d"],
     ).item())
+
+    print("Initial loss", optimizer.model.loss(input, None).item())
 
     if cuda_device is not None and torch.cuda.is_available():
         torch.cuda.synchronize(cuda_device)
         torch.cuda.reset_peak_memory_stats(cuda_device)
-        free_baseline, total_memory = torch.cuda.mem_get_info(cuda_device)
-        torch_reserved_baseline = torch.cuda.memory_reserved(cuda_device)
-        warp_current_baseline = (wp.get_mempool_used_mem_current(warp_device) if warp_device is not None else 0)
-        nontorch_baseline = ((total_memory - free_baseline) - torch_reserved_baseline - warp_current_baseline)
 
     start = perf_counter()
     for idx in range(20):
         loss = optimizer.step(input)
-        print('Iteration', idx, 'loss', loss.item(), 'time', perf_counter() - start)
+        print("Iteration", idx, "loss", loss.item(), "time", perf_counter() - start)
 
     if cuda_device is not None and torch.cuda.is_available():
         torch.cuda.synchronize(cuda_device)
     end = perf_counter()
-    
-    print('Time', end - start)
+    print("Time", end - start)
 
     if memory_snapshot_path:
         torch.cuda.synchronize(cuda_device)
@@ -230,39 +195,33 @@ def main():
 
     if cuda_device is not None and torch.cuda.is_available():
         peak_allocated = torch.cuda.max_memory_allocated(cuda_device)
-
         try:
             peak_reserved = torch.cuda.max_memory_reserved(cuda_device)
         except AttributeError:
             peak_reserved = torch.cuda.max_memory_cached(cuda_device)
-
-        free_end, _ = torch.cuda.mem_get_info(cuda_device)
-        torch_reserved_end = torch.cuda.memory_reserved(cuda_device)
-        warp_current_end = (wp.get_mempool_used_mem_current(warp_device) if warp_device is not None else 0)
-        nontorch_end = ((total_memory - free_end) - torch_reserved_end - warp_current_end)
-        module_growth = nontorch_end - nontorch_baseline if nontorch_baseline is not None else None
-
         print(f"Peak CUDA memory allocated: {_format_bytes(peak_allocated)}")
         print(f"Peak CUDA memory reserved: {_format_bytes(peak_reserved)}")
-        print(f"Non-allocator CUDA memory (context + kernel modules): {_format_bytes(nontorch_end)}")
-        if module_growth is not None:
-            print(f"Kernel-module growth during run (Triton JIT binaries): {_format_bytes(module_growth)}")
 
     if warp_device is not None and warp_mempool_start_current is not None:
         try:
             warp_current = wp.get_mempool_used_mem_current(warp_device)
             warp_high = wp.get_mempool_used_mem_high(warp_device)
-            print(f"Warp CUDA mempool current: {_format_bytes(warp_current)} (Δ {_format_bytes(warp_current - warp_mempool_start_current)})")
-            print(f"Warp CUDA mempool high-water: {_format_bytes(warp_high)} (Δ {_format_bytes(warp_high - warp_mempool_start_high)})")
+            print(f"Warp CUDA mempool current: {_format_bytes(warp_current)} "
+                f"(Δ {_format_bytes(warp_current - warp_mempool_start_current)})"
+            )
+            print(
+                f"Warp CUDA mempool high-water: {_format_bytes(warp_high)} "
+                f"(Δ {_format_bytes(warp_high - warp_mempool_start_high)})"
+            )
         except Exception as e:
             print(f"Warning: failed to query Warp mempool stats: {e}")
 
     print('Ending loss:', least_square_error(
         model.pose,
-        model.points_3d,
-        dataset['camera_index_of_observations'],
-        dataset['point_index_of_observations'],
-        dataset['points_2d'],
+        model.points,
+        dataset["camera_index_of_observations"],
+        dataset["point_index_of_observations"],
+        dataset["points_2d"],
     ).item())
 
 
