@@ -9,7 +9,6 @@ wp.init()
 
 def torchbsr2wp(tbsr):
     assert tbsr.layout == torch.sparse_bsr
-    block_type = wp.types.matrix(shape=tbsr.values().shape[-2:], dtype=wp.dtype_from_torch(tbsr.dtype))
     block_type = wp.types.matrix(shape=tuple(tbsr.values().shape[-2:]), dtype=wp.dtype_from_torch(tbsr.dtype))
     bsr = wps.bsr_matrix_t(block_type)()
     bsr.nrow = int(tbsr.shape[0] // block_type._shape_[0])
