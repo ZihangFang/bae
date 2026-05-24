@@ -1,15 +1,17 @@
 from time import perf_counter
-from pathlib import Path
 from datetime import datetime
-from pypose.autograd.function import psjac
-from datapipes.bal_loader import get_problem
-from bae.optim.optimizer import Schur
-from bae.optim.triton_kernel import sparse_bsr_mv
-from bae.utils.pysolvers import PCG
+from pathlib import Path
+
 import pypose as pp
 import torch
 import torch.nn as nn
 import warp as wp
+from pypose.autograd.function import psjac
+
+from datapipes.bal_loader import get_problem
+from bae.optim.optimizer import Schur
+from bae.optim.triton_kernel import sparse_bsr_mv
+from bae.utils.pysolvers import PCG
 
 TARGET_DATASET = "trafalgar"
 TARGET_PROBLEM = "problem-257-65132-pre"
