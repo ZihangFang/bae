@@ -10,11 +10,14 @@
 ### Parameter setup
 
 ```python
+import pypose as pp
+from pypose.autograd.function import psjac
+
 class Reproj(nn.Module):
     def __init__(self, camera_params, points_3d):
         super().__init__()
-        self.pose = nn.Parameter(TrackingTensor(camera_params))
-        self.points_3d = nn.Parameter(TrackingTensor(points_3d))
+        self.pose = pp.Parameter(camera_params, sjac=True)
+        self.points_3d = pp.Parameter(points_3d, sjac=True)
         self.pose.trim_SE3_grad = True
 ```
 
@@ -25,9 +28,9 @@ class Reproj(nn.Module):
 ### Projection map
 
 ```python
-@map_transform
+@psjac
 def project(points, camera_params):
-    points_proj = rotate_quat(points, camera_params[..., :7])
+    points_proj = pp.SE3(camera_params[..., :7]).Act(points)
     points_proj = -points_proj[..., :2] / points_proj[..., 2].unsqueeze(-1)
 
     f = camera_params[..., -3].unsqueeze(-1)
@@ -71,9 +74,9 @@ Use this when the first camera pose is fixed and should not appear in the optimi
 class ReprojFixedFirstCamera(nn.Module):
     def __init__(self, camera_se3_rest, camera_intrinsics, points_3d):
         super().__init__()
-        self.pose_rest = nn.Parameter(TrackingTensor(camera_se3_rest))
-        self.intrinsics = nn.Parameter(TrackingTensor(camera_intrinsics))
-        self.points_3d = nn.Parameter(TrackingTensor(points_3d))
+        self.pose_rest = pp.Parameter(camera_se3_rest, sjac=True)
+        self.intrinsics = pp.Parameter(camera_intrinsics, sjac=True)
+        self.points_3d = pp.Parameter(points_3d, sjac=True)
         self.pose_rest.trim_SE3_grad = True
 ```
 
@@ -84,7 +87,7 @@ class ReprojFixedFirstCamera(nn.Module):
 ### Projection map with split pose/intrinsics
 
 ```python
-@map_transform
+@psjac
 def project_with_se3_and_intrinsics(points, camera_se3, intrinsics):
     points_proj = pp.SE3(camera_se3).Act(points)
     points_proj = -points_proj[..., :2] / points_proj[..., 2].unsqueeze(-1)
@@ -123,7 +126,7 @@ Use this when one point subset is optimized directly and another subset is produ
 ### Extra map
 
 ```python
-@map_transform
+@psjac
 def transform_points(points, se3_params):
     return pp.SE3(se3_params).Act(points)
 ```
@@ -134,10 +137,10 @@ def transform_points(points, se3_params):
 class ReprojCat(nn.Module):
     def __init__(self, camera_params, points_b, points_c, se3_c):
         super().__init__()
-        self.pose = nn.Parameter(TrackingTensor(camera_params))
-        self.points_b = nn.Parameter(TrackingTensor(points_b))
-        self.points_c = nn.Parameter(TrackingTensor(points_c))
-        self.se3_c = nn.Parameter(TrackingTensor(se3_c))
+        self.pose = pp.Parameter(camera_params, sjac=True)
+        self.points_b = pp.Parameter(points_b, sjac=True)
+        self.points_c = pp.Parameter(points_c, sjac=True)
+        self.se3_c = pp.Parameter(se3_c, sjac=True)
         self.pose.trim_SE3_grad = True
         self.se3_c.trim_SE3_grad = True
 

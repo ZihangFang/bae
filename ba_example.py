@@ -12,9 +12,12 @@ from bae.sparse.py_ops import *
 from bae.optim import LM
 from bae.utils.pysolvers import PCG, CuDSS
 import torch.nn as nn
+from pypose.autograd.function import psjac
 
 from bae.autograd.function import TrackingTensor, map_transform
-from bae.utils.ba import rotate_quat
+from datapipes.bal_loader import get_problem
+from bae.optim import LM
+from bae.utils.pysolvers import PCG
 
 TARGET_DATASET = "trafalgar"
 TARGET_PROBLEM = "problem-257-65132-pre"
@@ -51,9 +54,9 @@ def _format_bytes(num_bytes: int) -> str:
     return f"{sign}{size:.2f} {unit}"
 
 
-@map_transform
+@psjac
 def project(points, camera_params):
-    projection = rotate_quat(points, camera_params[..., :7])
+    projection = pp.SE3(camera_params[..., :7]).Act(points)
     projection = -projection[..., :2] / projection[..., [2]]
 
     f = camera_params[..., [-3]]
@@ -68,8 +71,8 @@ def project(points, camera_params):
 class Residual(nn.Module):
     def __init__(self, camera_params, points):
         super().__init__()
-        self.pose = nn.Parameter(TrackingTensor(camera_params))
-        self.points = nn.Parameter(TrackingTensor(points))
+        self.pose = pp.Parameter(camera_params, sjac=True)
+        self.points = pp.Parameter(points, sjac=True)
         self.pose.trim_SE3_grad = True
 
     def forward(self, observes, cidx, pidx):
