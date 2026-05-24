@@ -87,7 +87,7 @@ class LM(ppLM):
                     if param.shape[-1] > 7:
                         param[:, 7:] += step_view[..., 6:]
                 else:
-                    param.add_(d.view(param.shape))
+                    param.add_(step_view)
 
 
 class Schur(LM):
