@@ -10,7 +10,6 @@ from pypose.autograd.function import psjac
 
 from datapipes.bal_loader import get_problem
 from bae.optim.optimizer import Schur
-from bae.optim.triton_kernel import sparse_bsr_mv
 from bae.utils.pysolvers import PCG
 
 from pathlib import Path
@@ -30,6 +29,10 @@ TARGET_PROBLEM = "problem-257-65132-pre"
 # TARGET_PROBLEM = "problem-1723-156502-pre"
 # TARGET_DATASET = "dubrovnik"
 # TARGET_PROBLEM = "problem-356-226730-pre"
+# TARGET_DATASET = "venice"
+# TARGET_PROBLEM = "problem-1778-993923-pre"
+# TARGET_DATASET = "final"
+# TARGET_PROBLEM = "problem-13682-4456117-pre"
 
 DEVICE = "cuda"
 OPTIMIZE_INTRINSICS = True
