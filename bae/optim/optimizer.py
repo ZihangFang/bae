@@ -10,11 +10,10 @@ from ..sparse.spgemm import CuSparse
 from ..utils.linear_operator import NormalMatVec
 from ..utils.parameter import parameter_update_shape
 
-from .triton_kernel import (
-    sparse_bsr_mm, sparse_bsr_mv,
-    sparse_bsr_transposed, sparse_bsr_axpy,
-    BlockJacobi, cg,
-)
+import warp as wp
+from warp import sparse
+from warp.optim import linear
+from bae.sparse.warp_wrappers import format_vec_for_bsr, torchbsr2wp, wp2torchbsr
 
 
 class LM(ppLM):
@@ -98,122 +97,117 @@ class Schur(LM):
             weight = self.weight if weight is None else weight
             R = self.model(input, target)[0]
             J = jacobian(R, pg['params'])
-            
-            if isinstance(R, TrackingTensor):
-                R = R.tensor()
-            else:
-                R = R.detach()
-            torch.cuda.empty_cache()
 
             self.last = self.loss = self.loss if hasattr(self, 'loss') else self.model.loss(input, target)
 
-            J0 = J[0]
-            J1 = J[1]
+            J0wp = torchbsr2wp(J[0])
+            J1wp = torchbsr2wp(J[1])
+            J0twp = sparse.bsr_transposed(J0wp)
+            J1twp = sparse.bsr_transposed(J1wp)
+            U = sparse.bsr_mm(J0twp, J0wp)
+            V = sparse.bsr_mm(J1twp, J1wp)
+
             if self.matrix_free_normal:
-                J0t = sparse_bsr_transposed(J0)
-                U = sparse_bsr_mm(J0t, J0)
-                del J0t
-                J1t = sparse_bsr_transposed(J1)
-                V = sparse_bsr_mm(J1t, J1)
-                del J1t
+                del J0twp, J1twp
             else:
-                J0t = sparse_bsr_transposed(J0)
-                J1t = sparse_bsr_transposed(J1)
-                U = sparse_bsr_mm(J0t, J0)
-                V = sparse_bsr_mm(J1t, J1)
-                W = sparse_bsr_mm(J0t, J1)
-                Wt = sparse_bsr_transposed(W)
-                del J0t, J1t
+                W = sparse.bsr_mm(J0twp, J1wp)
+                Wt = sparse.bsr_transposed(W)
+                del J0twp, J1twp
 
-            diagonal_op_(U, op=partial(torch.clamp_, min=pg['min'], max=pg['max']))
-            diagonal_op_(V, op=partial(torch.clamp_, min=pg['min'], max=pg['max']))
+            Upt = wp2torchbsr(U)
+            Vpt = wp2torchbsr(V)
+            diagonal_op_(Upt, op=partial(torch.clamp_, min=pg['min'], max=pg['max']))
+            diagonal_op_(Vpt, op=partial(torch.clamp_, min=pg['min'], max=pg['max']))
             R_flat = R.reshape(-1).contiguous()
-            Ic = sparse_bsr_mv(J0, R_flat, alpha=-1.0, transpose=True)
-            Ip = sparse_bsr_mv(J1, R_flat, alpha=-1.0, transpose=True)
-            rhs_c = torch.empty_like(Ic)
-            rhs_p = torch.empty_like(Ip)
-            scratch_pts2 = torch.empty_like(Ip)
-            schur_Ap_buf = torch.empty_like(Ic)
-            v_Ap_buf = torch.empty_like(Ip)
-            D_c = torch.empty_like(Ic)
-            D_p = torch.empty_like(Ip)
-            cg_r_buf_c = torch.empty_like(Ic)
-            cg_p_buf_c = torch.empty_like(Ic)
-            cg_r_buf_p = torch.empty_like(Ip)
-            cg_p_buf_p = torch.empty_like(Ip)
+            Rwp = format_vec_for_bsr(R_flat, (J0wp.block_shape[1], J0wp.block_shape[0]))
+            Ic = sparse.bsr_mv(J0wp, Rwp, alpha=-1.0, transpose=True)
+            Ip = sparse.bsr_mv(J1wp, Rwp, alpha=-1.0, transpose=True)
+            rhs_c = wp.empty_like(Ic)
+            rhs_p = wp.empty_like(Ip)
+            scratch_pts2 = wp.empty_like(Ip)
 
             if self.matrix_free_normal:
-                scratch_obs = torch.empty_like(R_flat)
-                scratch_pts = torch.empty_like(Ip)
+                scratch_obs = wp.empty_like(Rwp)
+                scratch_pts = wp.empty_like(Ip)
 
-            solver_tol = getattr(self.solver, "tol", None) or 1e-5
+            solver_tol = getattr(self.solver, "tol", None)
             solver_maxiter = getattr(self.solver, "maxiter", 0) or 0
-            mm_cache_WV_i = {} if not self.matrix_free_normal else None
-            mm_cache_WVi_Wt = {} if not self.matrix_free_normal else None
-            axpy_cache_schur = {} if not self.matrix_free_normal else None
-            v_M = BlockJacobi(V)
-            schur_M = BlockJacobi(U) if self.matrix_free_normal else None
 
             while self.last <= self.loss:
                 damp = partial(torch.mul, other=1+pg['damping'])
-                diagonal_op_(U, op=damp)
-                diagonal_op_(V, op=damp)
-                V_i = inv_op(V)
+                diagonal_op_(Upt, op=damp)
+                diagonal_op_(Vpt, op=damp)
+
+                V_i = torchbsr2wp(inv_op(Vpt))
 
                 if self.matrix_free_normal:
-                    def schur_matvec(p, _V_i=V_i, _z=schur_Ap_buf):
-                        sparse_bsr_mv(J0, p, y=scratch_obs, beta=0.0)
-                        sparse_bsr_mv(J1, scratch_obs, y=scratch_pts, beta=0.0, transpose=True)
-                        sparse_bsr_mv(_V_i, scratch_pts, y=scratch_pts2, beta=0.0)
-                        sparse_bsr_mv(J1, scratch_pts2, y=scratch_obs, beta=0.0)
-                        sparse_bsr_mv(J0, scratch_obs, y=_z, alpha=-1.0, beta=0.0, transpose=True)
-                        sparse_bsr_mv(U, p, y=_z, alpha=1.0, beta=1.0)
-                        return _z
+                    def schur_matvec(x, y, z, alpha, beta, _V_i=V_i):
+                        sparse.bsr_mv(J0wp, x, y=scratch_obs, beta=0.0)
+                        sparse.bsr_mv(J1wp, scratch_obs, y=scratch_pts, beta=0.0, transpose=True)
+                        sparse.bsr_mv(_V_i, scratch_pts, y=scratch_pts2, beta=0.0)
+                        sparse.bsr_mv(J1wp, scratch_pts2, y=scratch_obs, beta=0.0)
+                        if z.ptr != y.ptr and beta != 0.0:
+                            wp.copy(src=y, dest=z)
+                        sparse.bsr_mv(J0wp, scratch_obs, y=z, alpha=-alpha, beta=beta, transpose=True)
+                        sparse.bsr_mv(U, x, y=z, alpha=alpha, beta=1.0)
 
-                    matvec_fn = schur_matvec
-                    schur_M.refresh(U)
-                    rhs_c.copy_(Ic)
-                    sparse_bsr_mv(V_i, Ip, y=scratch_pts2, beta=0.0)
-                    sparse_bsr_mv(J1, scratch_pts2, y=scratch_obs, beta=0.0)
-                    sparse_bsr_mv(J0, scratch_obs, y=rhs_c, alpha=-1.0, beta=1.0, transpose=True)
+                    schur_op = linear.LinearOperator(
+                        shape=U.shape, dtype=U.values.dtype, device=U.device,
+                        matvec=schur_matvec,
+                    )
+                    schur_M = linear.preconditioner(U)
+
+                    wp.copy(src=Ic, dest=rhs_c)
+                    sparse.bsr_mv(V_i, Ip, y=scratch_pts2, beta=0.0)
+                    sparse.bsr_mv(J1wp, scratch_pts2, y=scratch_obs, beta=0.0)
+                    sparse.bsr_mv(J0wp, scratch_obs, y=rhs_c, alpha=-1.0, beta=1.0, transpose=True)
                 else:
-                    WV_i = sparse_bsr_mm(W, V_i, topology_cache=mm_cache_WV_i)
-                    WVi_Wt = sparse_bsr_mm(WV_i, Wt, topology_cache=mm_cache_WVi_Wt)
-                    del WV_i
-                    schur_op = sparse_bsr_axpy(WVi_Wt, U, alpha=-1.0,
-                                               topology_cache=axpy_cache_schur)
-                    del WVi_Wt
-                    matvec_fn = lambda p, _S=schur_op, _y=schur_Ap_buf: \
-                        sparse_bsr_mv(_S, p, y=_y, beta=0.0)
-                    if schur_M is None:
-                        schur_M = BlockJacobi(schur_op)
-                    else:
-                        schur_M.refresh(schur_op)
-                    rhs_c.copy_(Ic)
-                    sparse_bsr_mv(V_i, Ip, y=scratch_pts2, beta=0.0)
-                    sparse_bsr_mv(W, scratch_pts2, y=rhs_c, alpha=-1.0, beta=1.0)
+                    WV_i = sparse.bsr_mm(W, V_i)
+                    WVi_Wt = sparse.bsr_mm(WV_i, Wt)
+                    U_clone_torch = torch.sparse_bsr_tensor(
+                        crow_indices=Upt.crow_indices().clone(),
+                        col_indices=Upt.col_indices().clone(),
+                        values=Upt.values().clone(),
+                        size=Upt.shape, device=Upt.device, dtype=Upt.dtype,
+                    )
+                    schur_op = sparse.bsr_axpy(WVi_Wt, torchbsr2wp(U_clone_torch), alpha=-1.0)
+                    schur_M = linear.preconditioner(schur_op)
+                    wp.copy(src=Ic, dest=rhs_c)
+                    sparse.bsr_mv(V_i, Ip, y=scratch_pts2, beta=0.0)
+                    sparse.bsr_mv(W, scratch_pts2, y=rhs_c, alpha=-1.0, beta=1.0)
 
-                D_c.zero_()
-                cg(matvec_fn, rhs_c, x=D_c, M=schur_M,
-                   tol=solver_tol, maxiter=solver_maxiter,
-                   r_buf=cg_r_buf_c, p_buf=cg_p_buf_c)
+                D_c = wp.zeros_like(rhs_c)
+                linear.cg(
+                    A=schur_op,
+                    b=rhs_c,
+                    x=D_c,
+                    tol=solver_tol,
+                    maxiter=solver_maxiter,
+                    M=schur_M,
+                )
 
-                rhs_p.copy_(Ip)
+                
+                wp.copy(src=Ip, dest=rhs_p)
+                
                 if self.matrix_free_normal:
-                    sparse_bsr_mv(J0, D_c, y=scratch_obs, beta=0.0)
-                    sparse_bsr_mv(J1, scratch_obs, y=rhs_p, alpha=-1.0, beta=1.0, transpose=True)
+                    sparse.bsr_mv(J0wp, D_c, y=scratch_obs, beta=0.0)
+                    sparse.bsr_mv(J1wp, scratch_obs, y=rhs_p,
+                                  alpha=-1.0, beta=1.0, transpose=True)
                 else:
-                    sparse_bsr_mv(Wt, D_c, y=rhs_p, alpha=-1.0, beta=1.0)
+                    sparse.bsr_mv(Wt, D_c, y=rhs_p, alpha=-1.0, beta=1.0)
 
-                v_M.refresh(V)
-                D_p.zero_()
-                cg(lambda p, _V=V, _y=v_Ap_buf: sparse_bsr_mv(_V, p, y=_y, beta=0.0),
-                   rhs_p, x=D_p, M=v_M,
-                   tol=solver_tol, maxiter=solver_maxiter,
-                   r_buf=cg_r_buf_p, p_buf=cg_p_buf_p)
+                D_p = wp.zeros_like(rhs_p)
+                linear.cg(
+                    A=V,
+                    b=rhs_p,
+                    x=D_p,
+                    tol=solver_tol,
+                    maxiter=solver_maxiter,
+                    M=linear.preconditioner(V),
+                )
 
-                D_c_t = D_c.flatten()
-                D_p_t = D_p.flatten()
+                D_c_t = wp.to_torch(D_c).flatten()
+                D_p_t = wp.to_torch(D_p).flatten()
                 D = torch.cat([D_c_t, D_p_t])
                 self.update_parameter(pg['params'], D)
                 self.loss = self.model.loss(input, target)
@@ -224,7 +218,7 @@ class Schur(LM):
                     last=self.last,
                     loss=self.loss,
                     J=J,
-                    Jwp=[J0, J1],
+                    Jwp=[J0wp, J1wp],
                     D=[D_c_t, D_p_t],
                     R=R_flat.view(-1, 1),
                 )
