@@ -18,7 +18,7 @@ from warp import sparse as wpsparse
 from datapipes.bal_loader import get_problem, read_bal_data
 from bae.sparse.py_ops import *
 from bae.optim import LM
-from bae.utils.pysolvers import PCG, CuDSS
+from bae.utils.pysolvers import PCG
 from bae.sparse.warp_wrappers import format_vec_for_bsr
 from bae.autograd.function import TrackingTensor, map_transform
 
