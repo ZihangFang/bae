@@ -11,7 +11,6 @@ tmp_debug/*
 task.md
 *.pickle
 *.png
-.warp_cache/*
 .DS_Store
 tmp/*
 examples/module/pgo/data/*
