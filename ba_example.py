@@ -111,21 +111,16 @@ class TrustRegion(pp.optim.strategy.TrustRegion):
         Jwp = kwargs.get("Jwp")
         if Jwp is not None:
             J = Jwp
-        JD = None
-        for i in range(len(D)):
-            if JD is None:
-                if Jwp is not None:
-                    Dwp = format_vec_for_bsr(D[i].flatten().contiguous(), J[i].block_shape)
+            JD = None
+            for i in range(len(D)):
+                Dwp = format_vec_for_bsr(D[i].flatten().contiguous(), J[i].block_shape)
+                if JD is None:
                     JD = wp.to_torch(wpsparse.bsr_mv(J[i], Dwp)).flatten()
                 else:
-                    JD = J[i] @ D[i].flatten()
-            else:
-                if Jwp is not None:
-                    Dwp = format_vec_for_bsr(D[i].flatten().contiguous(), J[i].block_shape)
                     JD += wp.to_torch(wpsparse.bsr_mv(J[i], Dwp)).flatten()
-                else:
-                    JD += J[i] @ D[i].flatten()
-        JD = JD[..., None]
+            JD = JD[..., None]
+        else:
+            JD = J @ D.view(-1, 1)
         denom = -((JD).mT @ (2 * R.view_as(JD) + JD)).squeeze()
     
         if loss >= last or denom <= 0:
@@ -220,7 +215,7 @@ def main():
 
     strategy = TrustRegion(up=2.0, down=0.5**4)
     solver = PCG(tol=1e-4, maxiter=250)
-    optimizer = Schur(model, strategy=strategy, solver=solver, reject=30)
+    optimizer = LM(model, strategy=strategy, solver=solver, reject=30)
 
     print("Loss:", least_square_error(
         model.pose,
