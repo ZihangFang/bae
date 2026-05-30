@@ -197,8 +197,8 @@ def main():
             print(f"Warning: failed to query Warp mempool stats: {e}")
 
     model = Residual(
-        dataset['camera_params'][:, :NUM_CAMERA_PARAMS].clone(),
-        dataset['points_3d'].clone()
+        dataset["camera_params"][:, :NUM_CAMERA_PARAMS].clone(),
+        dataset["points_3d"].clone()
     ).to(DEVICE)
 
     strategy = TrustRegion(up=2.0, down=0.5**4)
