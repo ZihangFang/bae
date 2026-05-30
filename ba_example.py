@@ -88,20 +88,8 @@ class Residual(nn.Module):
         return points_proj - observes
 
 
-class Reproj(nn.Module):
-    def __init__(self, camera_params, points_3d):
-        super().__init__()
-        self.pose = nn.Parameter(TrackingTensor(camera_params))
-        self.points_3d = nn.Parameter(TrackingTensor(points_3d))
-        self.pose.trim_SE3_grad = True
-
-    def forward(self, points_2d, camera_indices, point_indices):
-        points_proj = project(self.points_3d[point_indices], self.pose[camera_indices])
-        return points_proj - points_2d
-
-
 def least_square_error(camera_params, points_3d, camera_indices, point_indices, points_2d):
-    model = Reproj(camera_params, points_3d)
+    model = Residual(camera_params, points_3d)
     loss = model(points_2d, camera_indices, point_indices)
     return torch.sum(loss**2, dim=-1).mean()
 
@@ -179,9 +167,9 @@ def main():
     }
 
     input = {
-        "points_2d": dataset["points_2d"],
-        "camera_indices": dataset["camera_index_of_observations"],
-        "point_indices": dataset["point_index_of_observations"],
+        "observes": dataset["points_2d"],
+        "cidx": dataset["camera_index_of_observations"],
+        "pidx": dataset["point_index_of_observations"],
     }
 
     if DEVICE.startswith("cuda") and torch.cuda.is_available():
@@ -208,7 +196,7 @@ def main():
         except Exception as e:
             print(f"Warning: failed to query Warp mempool stats: {e}")
 
-    model = Reproj(
+    model = Residual(
         dataset['camera_params'][:, :NUM_CAMERA_PARAMS].clone(),
         dataset['points_3d'].clone()
     ).to(DEVICE)
@@ -219,7 +207,7 @@ def main():
 
     print("Loss:", least_square_error(
         model.pose,
-        model.points_3d,
+        model.points,
         dataset["camera_index_of_observations"],
         dataset["point_index_of_observations"],
         dataset["points_2d"],
@@ -265,7 +253,7 @@ def main():
 
     print('Ending loss:', least_square_error(
         model.pose,
-        model.points_3d,
+        model.points,
         dataset["camera_index_of_observations"],
         dataset["point_index_of_observations"],
         dataset["points_2d"],
