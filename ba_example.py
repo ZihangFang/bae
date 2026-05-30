@@ -222,12 +222,12 @@ def main():
     solver = PCG(tol=1e-4, maxiter=250)
     optimizer = Schur(model, strategy=strategy, solver=solver, reject=30)
 
-    print('Initial loss:', least_square_error(
+    print("Loss:", least_square_error(
         model.pose,
         model.points_3d,
-        dataset['camera_index_of_observations'],
-        dataset['point_index_of_observations'],
-        dataset['points_2d'],
+        dataset["camera_index_of_observations"],
+        dataset["point_index_of_observations"],
+        dataset["points_2d"],
     ).item())
 
     if cuda_device is not None and torch.cuda.is_available():
@@ -237,7 +237,7 @@ def main():
     start = perf_counter()
     for idx in range(20):
         loss = optimizer.step(input)
-        print('Iteration', idx, 'loss', loss.item(), 'time', perf_counter() - start)
+        print("Iteration", idx, "loss", loss.item(), "time", perf_counter() - start)
 
     if cuda_device is not None and torch.cuda.is_available():
         torch.cuda.synchronize(cuda_device)
@@ -271,9 +271,9 @@ def main():
     print('Ending loss:', least_square_error(
         model.pose,
         model.points_3d,
-        dataset['camera_index_of_observations'],
-        dataset['point_index_of_observations'],
-        dataset['points_2d'],
+        dataset["camera_index_of_observations"],
+        dataset["point_index_of_observations"],
+        dataset["points_2d"],
     ).item())
 
 
