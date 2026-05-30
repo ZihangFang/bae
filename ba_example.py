@@ -222,14 +222,12 @@ def main():
         loss = optimizer.step(input)
         print("Iteration", idx, "loss", loss.item(), "time", perf_counter() - start)
 
-    if cuda_device is not None and torch.cuda.is_available():
-        torch.cuda.synchronize(cuda_device)
+    torch.cuda.synchronize(cuda_device)
     end = perf_counter()
     
     print("Time", end - start)
 
     if memory_snapshot_path:
-        torch.cuda.synchronize(cuda_device)
         torch.cuda.memory._dump_snapshot(str(memory_snapshot_path))
         print(f"CUDA memory snapshot saved to {memory_snapshot_path}")
 
