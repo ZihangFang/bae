@@ -226,7 +226,7 @@ def main():
         torch.cuda.synchronize(cuda_device)
     end = perf_counter()
     
-    print('Time', end - start)
+    print("Time", end - start)
 
     if memory_snapshot_path:
         torch.cuda.synchronize(cuda_device)
