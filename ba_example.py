@@ -152,14 +152,14 @@ class Adaptive(pp.optim.strategy.Adaptive):
 
 
 def main():
+    dataset = get_problem(TARGET_PROBLEM, TARGET_DATASET)
+    print(f"Fetched {TARGET_PROBLEM} from {TARGET_DATASET}")
     file_name = f'{TARGET_DATASET}.{TARGET_PROBLEM}'
     cuda_device = torch.device(DEVICE) if DEVICE.startswith("cuda") else None
     memory_snapshot_path = None
     warp_device = None
     warp_mempool_start_current = None
     warp_mempool_start_high = None
-
-    dataset = get_problem(TARGET_PROBLEM, TARGET_DATASET, use_quat=USE_QUATERNIONS)
     dataset = {
         key: value.to(DEVICE)
         for key, value in dataset.items()
