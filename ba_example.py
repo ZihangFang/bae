@@ -20,7 +20,6 @@ from bae.sparse.py_ops import *
 from bae.optim import LM
 from bae.utils.pysolvers import PCG
 from bae.sparse.warp_wrappers import format_vec_for_bsr
-from bae.autograd.function import TrackingTensor, map_transform
 
 
 TARGET_DATASET = "trafalgar"
@@ -56,7 +55,7 @@ def _format_bytes(num_bytes: int) -> str:
     return f"{sign}{size:.2f} {unit}"
 
 
-@map_transform
+@psjac
 def project(points, camera_params):
     projection = pp.SE3(camera_params[..., :7]).Act(points)
     projection = -projection[..., :2] / projection[..., [2]]
