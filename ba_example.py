@@ -57,14 +57,9 @@ def _format_bytes(num_bytes: int) -> str:
     return f"{sign}{size:.2f} {unit}"
 
 
-def rotate_quat(points, rot_vecs):
-    rot_vecs = pp.SE3(rot_vecs)
-    return rot_vecs.Act(points)
-
-
 @map_transform
 def project(points, camera_params):
-    projection = rotate_quat(points, camera_params[..., :7])
+    projection = pp.SE3(camera_params[..., :7]).Act(points)
     projection = -projection[..., :2] / projection[..., [2]]
 
     f = camera_params[..., [-3]]
@@ -79,8 +74,8 @@ def project(points, camera_params):
 class Residual(nn.Module):
     def __init__(self, camera_params, points):
         super().__init__()
-        self.pose = nn.Parameter(TrackingTensor(camera_params))
-        self.points = nn.Parameter(TrackingTensor(points))
+        self.pose = pp.Parameter(camera_params, sjac=True)
+        self.points = pp.Parameter(points, sjac=True)
         self.pose.trim_SE3_grad = True
 
     def forward(self, observes, cidx, pidx):
@@ -203,7 +198,7 @@ def main():
 
     strategy = TrustRegion(up=2.0, down=0.5**4)
     solver = PCG(tol=1e-4, maxiter=250)
-    optimizer = LM(model, strategy=strategy, solver=solver, reject=30)
+    optimizer = Schur(model, strategy=strategy, solver=solver, reject=30)
 
     print("Loss:", least_square_error(
         model.pose,
