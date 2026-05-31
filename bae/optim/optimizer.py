@@ -99,9 +99,6 @@ class Schur(LM):
             J = jacobian(R, pg['params'])
 
             self.last = self.loss = self.loss if hasattr(self, 'loss') else self.model.loss(input, target)
-
-            torch.cuda.empty_cache()
-
             J0wp = torchbsr2wp(J[0])
             J1wp = torchbsr2wp(J[1])
             J0twp = sparse.bsr_transposed(J0wp)
