@@ -26,14 +26,12 @@ class LM(ppLM):
     def step(self, input, target=None, weight=None):
         for pg in self.param_groups:
             weight = self.weight if weight is None else weight
-            R = self.model(input)[0]
-            J_list = jacobian(R, pg['params'])
-
+            R = list(self.model(input))
+            R = R[0]
+            J = jacobian(R, pg['params'])
             if isinstance(R, TrackingTensor):
                 R = R.tensor()
-
-            J = torch.cat([j.to_sparse_coo() for j in J_list], dim=-1).to_sparse_csr()
-            del J_list
+            J = torch.cat([j.to_sparse_coo() for j in J], dim=-1).to_sparse_csr()
 
             self.last = self.loss = self.loss if hasattr(self, 'loss') else self.model.loss(input, target)
             self.reject_count = 0
