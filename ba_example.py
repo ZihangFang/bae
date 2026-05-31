@@ -8,15 +8,9 @@ import torch.nn as nn
 import warp as wp
 from pypose.autograd.function import psjac
 
-from datapipes.bal_loader import get_problem
 from bae.optim.optimizer import Schur
-from bae.utils.pysolvers import PCG
-
-from pathlib import Path
-import warp as wp
 from warp import sparse as wpsparse
-from datapipes.bal_loader import get_problem, read_bal_data
-from bae.sparse.py_ops import *
+from datapipes.bal_loader import get_problem
 from bae.optim import LM
 from bae.utils.pysolvers import PCG
 from bae.sparse.warp_wrappers import format_vec_for_bsr
@@ -24,6 +18,7 @@ from bae.sparse.warp_wrappers import format_vec_for_bsr
 
 TARGET_DATASET = "trafalgar"
 TARGET_PROBLEM = "problem-257-65132-pre"
+# other options:
 # TARGET_DATASET = "ladybug"
 # TARGET_PROBLEM = "problem-1723-156502-pre"
 # TARGET_DATASET = "dubrovnik"
@@ -190,14 +185,14 @@ def main():
 
     model = Residual(
         dataset["camera_params"][:, :NUM_CAMERA_PARAMS].clone(),
-        dataset["points_3d"].clone()
+        dataset["points_3d"].clone(),
     ).to(DEVICE)
 
     strategy = TrustRegion(up=2.0, down=0.5**4)
     solver = PCG(tol=1e-4, maxiter=250)
     optimizer = LM(model, strategy=strategy, solver=solver, reject=30)
 
-    print("Loss:", least_square_error(
+    print('Loss:', least_square_error(
         model.pose,
         model.points,
         dataset["camera_index_of_observations"],
@@ -214,7 +209,6 @@ def main():
 
     torch.cuda.synchronize()
     end = perf_counter()
-    
     print("Time", end - start)
 
     if memory_snapshot_path:
