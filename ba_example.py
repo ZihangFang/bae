@@ -83,9 +83,9 @@ class Residual(nn.Module):
         return points_proj - observes
 
 
-def least_square_error(camera_params, points_3d, camera_indices, point_indices, points_2d):
-    model = Residual(camera_params, points_3d)
-    loss = model(points_2d, camera_indices, point_indices)
+def least_square_error(camera_params, points, cidx, pidx, observes):
+    model = Residual(camera_params, points)
+    loss = model(observes, cidx, pidx)
     return torch.sum(loss**2, dim=-1).mean()
 
 
@@ -160,7 +160,6 @@ def main():
         for key, value in dataset.items()
         if isinstance(value, torch.Tensor)
     }
-
     input = {
         "observes": dataset["points_2d"],
         "cidx": dataset["camera_index_of_observations"],
@@ -198,7 +197,7 @@ def main():
 
     strategy = TrustRegion(up=2.0, down=0.5**4)
     solver = PCG(tol=1e-4, maxiter=250)
-    optimizer = Schur(model, strategy=strategy, solver=solver, reject=30)
+    optimizer = LM(model, strategy=strategy, solver=solver, reject=30)
 
     print("Loss:", least_square_error(
         model.pose,
