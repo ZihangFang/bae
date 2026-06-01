@@ -12,7 +12,7 @@ from bae.optim.optimizer import Schur
 from datapipes.bal_loader import get_problem
 from bae.optim import LM
 from bae.utils.pysolvers import PCG
-from bae.optim.strategy import TrustRegion, Adaptive
+from bae.optim.strategy import TrustRegion
 
 
 TARGET_DATASET = "trafalgar"
