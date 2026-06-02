@@ -40,6 +40,6 @@
 		"CLAUDE_CODE_DISABLE_QUOTA_CHECK": "1",
 		"IS_SANDBOX": "1"
 	},
-	"runArgs": ["--user=0:0", "--gpus", "all"],
+	"runArgs": ["--user=0:0", "--gpus", "all", "--shm-size=8g"],
 	"remoteUser": "root"
 }

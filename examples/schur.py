@@ -1,6 +1,12 @@
 from time import perf_counter
 from datetime import datetime
 from pathlib import Path
+import inspect
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import pypose as pp
 import torch
@@ -106,13 +112,15 @@ def main():
         snapshot_dir = Path("memory_traces")
         snapshot_dir.mkdir(exist_ok=True)
         memory_snapshot_path = snapshot_dir / f"{file_name}_cuda_memory_{timestamp}.pickle"
-        torch.cuda.memory._record_memory_history(
-            enabled="all",
-            context="all",
-            stacks="python",
-            device=cuda_device,
-            clear_history=True,
-        )
+        memory_history_kwargs = {
+            "enabled": "all",
+            "context": "all",
+            "stacks": "python",
+            "device": cuda_device,
+        }
+        if "clear_history" in inspect.signature(torch.cuda.memory._record_memory_history).parameters:
+            memory_history_kwargs["clear_history"] = True
+        torch.cuda.memory._record_memory_history(**memory_history_kwargs)
 
     if REPORT_WARP_MEMPOOL and DEVICE.startswith("cuda"):
         try:
@@ -132,7 +140,7 @@ def main():
 
     strategy = TrustRegion(up=2.0, down=0.5**4)
     solver = PCG(tol=1e-4, maxiter=250)
-    optimizer = LM(model, strategy=strategy, solver=solver, reject=30)
+    optimizer = Schur(model, strategy=strategy, solver=solver, reject=30)
 
     print('Loss:', least_square_error(
         model.pose,
