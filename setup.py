@@ -1,10 +1,14 @@
 import os
 import site
 import sysconfig
+from importlib.metadata import PackageNotFoundError, version as get_installed_version
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 from setuptools import setup, find_packages
 from torch.utils.cpp_extension import CppExtension, CUDAExtension, BuildExtension
 
 VERSION = "0.2.4"
+SUPPORTED_CUDSS_SPECIFIER = SpecifierSet("<=0.7.1.6")
 
 def readme():
     """Read the README.md file for long description"""
@@ -23,6 +27,18 @@ CUDSS_DIR = (
     or os.environ.get("CUDSS_ROOT")
     or ""
 )
+def validate_cudss_packages(specifier):
+    for package_name in ("nvidia-cudss-cu13", "nvidia-cudss-cu12"):
+        try:
+            installed_version = get_installed_version(package_name)
+        except PackageNotFoundError:
+            continue
+
+        if Version(installed_version) not in specifier:
+            raise RuntimeError(
+                f"{package_name}=={installed_version} is not supported. "
+                f"Install {package_name}{specifier} or disable CuDSS with USE_CUDSS=0."
+            )
 
 
 def find_cudss_root():
@@ -84,6 +100,9 @@ def resolve_cudss_link_inputs(cudss_root):
     return libraries, extra_link_args, nvcc_args
 
 if __name__ == '__main__':
+    if USE_CUDSS:
+        validate_cudss_packages(SUPPORTED_CUDSS_SPECIFIER)
+
     cudss_root = find_cudss_root()
 
     # Common extensions
