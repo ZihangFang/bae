@@ -84,10 +84,10 @@
 
 ### Future Plan
 - [ ] Add Apple Silicon GPU support, [PyTorch PR WIP](https://github.com/pytorch/pytorch/pull/177757)
-- [ ] Schur complement
 - [ ] Reduce runtime overhead using CUDA graph
-- [ ] Distributed Tensor (DTensor) support
+- [ ] Distributed Tensor (DTensor) and FSDP support for multi-GPU and distributed optimization
 - [ ] An new backend for [distributed solver](https://github.com/NVIDIA/AMGX)
+- [x] Schur complement (added in [PR #35](https://github.com/pypose/bae/pull/35))
 
 ## Installation
 
