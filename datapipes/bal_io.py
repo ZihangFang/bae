@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 import torch
 
 DTYPE = torch.float64
@@ -34,27 +35,30 @@ def read_bal_data(file_name: str, use_quat: bool = True) -> dict:
     """
     with open(file_name, "r") as file:
         n_cameras, n_points, n_observations = map(int, file.readline().split())
+        values = np.fromfile(file, sep=" ", dtype=np.float64)
 
-        camera_indices = torch.empty(n_observations, dtype=torch.int64)
-        point_indices = torch.empty(n_observations, dtype=torch.int64)
-        points_2d = torch.empty((n_observations, 2), dtype=DTYPE)
+    observation_value_count = n_observations * 4
+    camera_value_count = n_cameras * 9
+    point_value_count = n_points * 3
+    expected_value_count = observation_value_count + camera_value_count + point_value_count
+    if values.size != expected_value_count:
+        raise ValueError(
+            f"Expected {expected_value_count} numeric values in BAL file, parsed {values.size}."
+        )
 
-        for i in range(n_observations):
-            camera_index, point_index, x, y = file.readline().split()
-            camera_indices[i] = int(camera_index)
-            point_indices[i] = int(point_index)
-            points_2d[i, 0] = float(x)
-            points_2d[i, 1] = float(y)
+    observations = values[:observation_value_count].reshape(n_observations, 4)
+    camera_indices = torch.from_numpy(observations[:, 0].astype(np.int64, copy=True))
+    point_indices = torch.from_numpy(observations[:, 1].astype(np.int64, copy=True))
+    points_2d = torch.from_numpy(observations[:, 2:4].copy()).to(DTYPE)
 
-        camera_params = torch.empty(n_cameras * 9, dtype=DTYPE)
-        for i in range(n_cameras * 9):
-            camera_params[i] = float(file.readline())
-        camera_params = camera_params.reshape((n_cameras, 9))
-
-        points_3d = torch.empty(n_points * 3, dtype=DTYPE)
-        for i in range(n_points * 3):
-            points_3d[i] = float(file.readline())
-        points_3d = points_3d.reshape((n_points, 3))
+    camera_start = observation_value_count
+    point_start = camera_start + camera_value_count
+    camera_params = torch.from_numpy(
+        values[camera_start:point_start].reshape(n_cameras, 9).copy()
+    ).to(DTYPE)
+    points_3d = torch.from_numpy(
+        values[point_start:].reshape(n_points, 3).copy()
+    ).to(DTYPE)
 
     if use_quat:
         q = _rotvec_to_quat_xyzw(camera_params[:, :3])
