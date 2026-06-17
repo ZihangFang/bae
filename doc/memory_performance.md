@@ -95,12 +95,12 @@ The optimizer setup (shared by all conditions) is:
 
 - Strategy: `TrustRegion(up=2.0, down=0.5**4)`
 - Solver: `PCG(tol=1e-4, maxiter=250)`
-- `reject=20`
+- `reject=30`
 - Model: `Residual` from [`examples/schur.py`](../examples/schur.py), optimizing
   camera params + 3D points. Intrinsics are included
   (`OPTIMIZE_INTRINSICS = True` → 10 camera params per camera).
 
-This whole setup about the `TrustRegion` / `PCG` / `reject=20` configuration and the
+This whole setup about the `TrustRegion` / `PCG` / `reject=30` configuration and the
 `Residual` model is taken from the reference example
 [`examples/schur.py`](../examples/schur.py).
 
