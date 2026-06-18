@@ -75,9 +75,11 @@ explicitly built `JᵀJ` matrix for the matrix-free `NormalMatVec` operator.
 
 | Metric | Meaning |
 | --- | --- |
-| Number of parameters | The count of optimizable parameters: 3 per 3D point (xyz position) plus 7 per camera — i.e. 3 × (number of 3D points) + 7 × (number of cameras) |
+| Number of parameters | The x-axis count: 3 per 3D point (xyz position) plus 10 per camera (7 SE(3) pose + 3 intrinsics f, k1, k2) — i.e. 3 × (number of 3D points) + 10 × (number of cameras). With `OPTIMIZE_INTRINSICS = True` all 10 camera parameters are optimized, so `num_params` counts `NUM_CAMERA_PARAMS = 10` per camera. |
 | Peak GPU memory | The peak allocation in MiB — the max of the background sampler, `torch.cuda.max_memory_allocated`, and the Warp mempool high-water mark |
 | Average GPU memory | The mean allocation in MiB over the run, sampled every 5 ms |
+| Initial / final loss | Sum-of-squared-residuals loss (`model.loss`) before and after the 20 LM steps — a convergence sanity check (not plotted) |
+| Per-pixel loss | Final mean squared reprojection error per observation (`least_square_error`) = final loss ÷ number of observations |
 
 GPU memory is the sum of **PyTorch** allocations 
 and the **Warp** memory pool captured by a
@@ -97,7 +99,7 @@ The optimizer setup (shared by all conditions) is:
 - Solver: `PCG(tol=1e-4, maxiter=250)`
 - `reject=30`
 - Model: `Residual` from [`examples/schur.py`](../examples/schur.py), optimizing
-  camera params + 3D points. Intrinsics are included
+  camera params + 3D points (**3 per point**: xyz). Intrinsics are included
   (`OPTIMIZE_INTRINSICS = True` → 10 camera params per camera).
 
 This whole setup about the `TrustRegion` / `PCG` / `reject=30` configuration and the
@@ -129,7 +131,7 @@ optimizable parameters):
 | Schur, matrix-free | **~5.8 GiB** | **~2.3 GiB** |
 
 So **Schur with matrix-free** uses about **43% less peak** memory than the
-**LM (matrix-free)** baseline (~4.5 GiB less) and **~60% less average**. Notably,
+**LM (matrix-free)** baseline (~4.5 GiB less) and **~61% less average**. Notably,
 **Schur with the normal (materialized) path** has the *highest* average of the
 three — building `W`/`Wᵀ`/`S` explicitly keeps that memory occupied for the
 entire solve — so it is the **matrix-free** half that makes Schur pay off, not
@@ -147,7 +149,8 @@ Knobs near the top of the script:
 | `CONDITIONS` | 3 configs | Optimizer / matrix-free combinations to compare |
 | `DEVICE` | `"cuda"` | Compute device |
 | `NUM_ITERATIONS` | `20` | LM steps per run |
-| `OPTIMIZE_INTRINSICS` | `True` | Include camera intrinsics (10 vs 7 camera params) |
+| `OPTIMIZE_INTRINSICS` | `True` | Optimize the 3 camera intrinsics → `NUM_CAMERA_PARAMS = 10` (7 pose + 3 intrinsics) |
+| `POINT_PARAMS` | `3` | Parameters per 3D point (xyz position) |
 | `MEMORY_SAMPLE_INTERVAL_S` | `0.005` | Background memory sampling interval |
 
 ## Requirements
