@@ -141,8 +141,6 @@ keeps widening as problems grow.
 
 ## Configuration
 
-Knobs near the top of the script:
-
 | Constant | Value | Purpose |
 | --- | --- | --- |
 | `TARGET_PROBLEMS` | ladybug / trafalgar / dubrovnik / venice list | Which BAL problems to sweep |
