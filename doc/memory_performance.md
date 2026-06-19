@@ -39,9 +39,6 @@ system:
 S Δc = g_c − W V⁻¹ g_p ,     where   S = U − W V⁻¹ Wᵀ
 ```
 
-`bae` solves this reduced system for the camera update `Δc` with preconditioned
-CG, then **back-substitutes** to recover the points:
-
 ```
 Δp = V⁻¹ (g_p − Wᵀ Δc)
 ```
