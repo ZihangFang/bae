@@ -1,9 +1,25 @@
 # Comparing GPU Memory: Schur, Matrix-Free, and LM
 
-GPU-memory benchmark sweep for `bae`'s Bundle Adjustment optimizers. It runs a
-set of [BAL](https://grail.cs.washington.edu/projects/bal/) problems through
-several optimizer configurations, records peak and average GPU memory, and plots
-memory usage against problem size.
+**Bundle Adjustment (BA)** is the nonlinear least-squares problem at the core of
+3D reconstruction, Structure-from-Motion and SLAM. It jointly refines camera poses
+and intrinsics together with 3D point positions to minimize reprojection error.
+As scenes scale to millions of parameters, GPU
+memory becomes the bottleneck, and how that linear system is
+solved largely decides how much memory is used.
+
+This page benchmarks GPU memory across the two implementation choices `bae`
+offers for that solve:
+
+- **`LM` vs `Schur`** — solve the full normal equations (`LM`,
+  Levenberg–Marquardt) or use the **Schur complement** to reduce them to the
+  cameras only (`Schur`).
+- **matrix-free vs materialized** — apply the operator through matrix–vector
+  products meaning matrix-free or build it explicitly in memory.
+
+The sweep runs a set of [BAL](https://grail.cs.washington.edu/projects/bal/)
+problems of increasing size through three configurations —> `Schur` matrix-free,
+`Schur` materialized, and `LM` matrix-free. This records peak and average GPU
+memory and plots it against problem size.
 
 ## Output Graph
 
@@ -140,7 +156,7 @@ keeps widening as problems grow.
 
 | Constant | Value | Purpose |
 | --- | --- | --- |
-| `TARGET_PROBLEMS` | ladybug / trafalgar / dubrovnik / venice list | Which BAL problems to sweep |
+| `TARGET_PROBLEMS` | ladybug / trafalgar / dubrovnik / venice list | target datasets |
 | `CONDITIONS` | 3 configs | Optimizer / matrix-free combinations to compare |
 | `DEVICE` | `"cuda"` | Compute device |
 | `NUM_ITERATIONS` | `20` | LM steps per run |
