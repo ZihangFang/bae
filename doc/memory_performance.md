@@ -1,4 +1,4 @@
-# Improvement by Schur and Matrix-Free
+# Comparing GPU Memory: Schur, Matrix-Free, and LM
 
 GPU-memory benchmark sweep for `bae`'s Bundle Adjustment optimizers. It runs a
 set of [BAL](https://grail.cs.washington.edu/projects/bal/) problems through
