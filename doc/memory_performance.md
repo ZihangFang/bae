@@ -1,11 +1,4 @@
-# Comparing GPU Memory: Schur, Matrix-Free, and LM
-
-**Bundle Adjustment (BA)** is the nonlinear least-squares problem at the core of
-3D reconstruction, Structure-from-Motion and SLAM. It jointly refines camera poses
-and intrinsics together with 3D point positions to minimize reprojection error.
-As scenes scale to millions of parameters, GPU
-memory becomes the bottleneck, and how that linear system is
-solved largely decides how much memory is used.
+# Comparing GPU Memory: Vanilla LM, Schur-complement Optimizer, and Matrix-free options
 
 This page benchmarks GPU memory across the two implementation choices `bae`
 offers for that solve:
