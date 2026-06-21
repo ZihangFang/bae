@@ -77,10 +77,9 @@
 
 - **Sparse Block Matrix Operations**: Optimized implementations of sparse matrix operations for large-scale optimization
 - **CUDA Acceleration**: Custom CUDA kernels for high-performance sparse linear algebra
-- **Bundle Adjustment**: Efficient implementation for camera pose and 3D structure optimization
-- **Pose Graph Optimization**: Tools for optimizing robot trajectories using pose graph representations
 - **PyTorch Integration**: Seamlessly integrates with PyTorch's automatic differentiation framework
-- **Levenberg-Marquardt Optimizer**: Custom implementation of the LM algorithm for non-linear least squares problems
+- **Levenberg-Marquardt Optimizer**: The vanilla LM algorithm for non-linear least squares problems
+- **Schur Complement Optimizer**: Solve a Schur-reduce linear system for [optimized memory consumption](https://github.com/pypose/bae/blob/release/doc/memory_performance.md) 
 
 ### Future Plan
 - [ ] Add Apple Silicon GPU support, [PyTorch PR WIP](https://github.com/pytorch/pytorch/pull/177757)
