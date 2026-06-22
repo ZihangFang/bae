@@ -2,8 +2,7 @@ build/*
 bae.egg-info/*
 *.so
 *.pyc
-bal_data/*
-datapipes/bal_data/*
+**/bal_data/
 .ipynb_checkpoints/*
 .idea/*
 dump_Ab/*

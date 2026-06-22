@@ -24,23 +24,23 @@
   <tr>
     <td align="center" width="33%">
       <p align="center" width="100%">
-        <img src="https://github.com/sair-lab/bae/blob/product-page/docs/assets/garden_half.gif?raw=true" alt="Garden bundle adjustment example" width="100%" />
+        <img src="https://github.com/pypose/bae/blob/product-page/docs/assets/1c4b893630%20reconstruction_playback.gif?raw=true" alt="bundle adjustment example" width="100%" />
       </p>
     </td>
     <td align="center" width="33%">
       <p align="center" width="100%">
-        <img src="https://github.com/sair-lab/bae/blob/product-page/docs/assets/counter_half.gif?raw=true" alt="Counter bundle adjustment example" width="100%" />
+        <img src="https://github.com/pypose/bae/blob/product-page/docs/assets/bonsai%20playback%20optimized.gif?raw=true" alt="Bonsai bundle adjustment example" width="100%" />
       </p>
     </td>
     <td align="center" width="33%">
       <p align="center" width="100%">
-        <img src="https://github.com/sair-lab/bae/blob/product-page/docs/assets/kitchen_half.gif?raw=true" alt="Kitchen bundle adjustment example" width="100%" />
+        <img src="https://github.com/pypose/bae/blob/product-page/docs/assets/kitchen%20reconstruction_playback_0.95_output.gif?raw=true" alt="Kitchen bundle adjustment example" width="100%" />
       </p>
     </td>
   </tr>
   <tr>
-    <td align="center">Garden</td>
-    <td align="center">Counter</td>
+    <td align="center">Indoor</td>
+    <td align="center">Bonsai</td>
     <td align="center">Kitchen</td>
   </tr>
 </table>
@@ -77,10 +77,9 @@
 
 - **Sparse Block Matrix Operations**: Optimized implementations of sparse matrix operations for large-scale optimization
 - **CUDA Acceleration**: Custom CUDA kernels for high-performance sparse linear algebra
-- **Bundle Adjustment**: Efficient implementation for camera pose and 3D structure optimization
-- **Pose Graph Optimization**: Tools for optimizing robot trajectories using pose graph representations
 - **PyTorch Integration**: Seamlessly integrates with PyTorch's automatic differentiation framework
-- **Levenberg-Marquardt Optimizer**: Custom implementation of the LM algorithm for non-linear least squares problems
+- **Levenberg-Marquardt Optimizer**: The vanilla LM algorithm for non-linear least squares problems
+- **Schur Complement Optimizer**: Solve a Schur-reduce linear system for [optimized memory consumption](https://github.com/pypose/bae/blob/release/doc/memory_performance.md) 
 
 ### Future Plan
 - [ ] Add Apple Silicon GPU support, [PyTorch PR WIP](https://github.com/pytorch/pytorch/pull/177757)
