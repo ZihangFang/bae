@@ -20,3 +20,4 @@ pypose_clone/
 .claude/settings.local.json
 princeton365
 scannetpp
+outputs

@@ -63,6 +63,14 @@ def _cat_inside_map(points: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
     return torch.cat((u, v), dim=-1)
 
 
+@psjac
+def _map_with_optional_bias(points: torch.Tensor, scale: torch.Tensor, bias=None) -> torch.Tensor:
+    out = points * scale
+    if bias is not None:
+        out = out + bias
+    return out
+
+
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_sparse_jacobian_matches_torch_jacrev(device: str):
     if device == "cuda" and not torch.cuda.is_available():
@@ -148,6 +156,15 @@ class MapCatResidual(nn.Module):
         return _cat_inside_map(self.points[idx], scale) - obs
 
 
+class OptionalArgResidual(nn.Module):
+    def __init__(self, points: torch.Tensor):
+        super().__init__()
+        self.points = pp.Parameter(points, sjac=True)
+
+    def forward(self, obs: torch.Tensor, idx: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+        return _map_with_optional_bias(self.points[idx], scale, None) - obs
+
+
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_sparse_jacobian_psjac_treats_inner_cat_as_opaque(device: str):
     if device == "cuda" and not torch.cuda.is_available():
@@ -178,6 +195,36 @@ def test_sparse_jacobian_psjac_treats_inner_cat_as_opaque(device: str):
             ),
             dim=-1,
         ) - obs
+
+    (J_points,) = jacrev(f, argnums=(0,))(points0)
+    torch.testing.assert_close(J_sparse.to_dense(), _flatten_jac(J_points), rtol=1e-10, atol=1e-10)
+    assert torch.equal(J_sparse.col_indices(), idx)
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_sparse_jacobian_psjac_allows_none_constant_args(device: str):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA not available")
+
+    torch.manual_seed(0)
+    dtype = torch.float64
+
+    num_points = 6
+    n = 8
+    dim = 3
+
+    points0 = torch.randn(num_points, dim, device=device, dtype=dtype)
+    idx = torch.randint(0, num_points, (n,), device=device, dtype=torch.int32)
+    scale = torch.rand(n, dim, device=device, dtype=dtype) + 0.5
+    obs = torch.randn(n, dim, device=device, dtype=dtype)
+
+    model = OptionalArgResidual(points0)
+    out = model(obs, idx, scale)
+
+    (J_sparse,) = sparse_jacobian(out, [model.points])
+
+    def f(points: torch.Tensor) -> torch.Tensor:
+        return (points[idx] * scale) - obs
 
     (J_points,) = jacrev(f, argnums=(0,))(points0)
     torch.testing.assert_close(J_sparse.to_dense(), _flatten_jac(J_points), rtol=1e-10, atol=1e-10)

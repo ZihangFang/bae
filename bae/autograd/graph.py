@@ -173,6 +173,11 @@ def update_from_trace(bsrt: torch.Tensor, arg, new_col: Optional[torch.Tensor]=N
             )
     return jac_trace
 
+
+def _vmap_in_dims(args):
+    """Map Tensor inputs over dim 0 while treating non-Tensors as constants."""
+    return tuple(0 if isinstance(arg, torch.Tensor) else None for arg in args)
+
 def backward(output_, is_root=False):
     # For non-root recursion, no incoming trace means no contribution to
     # propagate. This avoids re-initializing identity traces on revisits.
@@ -186,8 +191,9 @@ def backward(output_, is_root=False):
         if len(argnums) == 0:
             warnings.warn("No upstream parameters to compute jacobian", stacklevel=2)
             return
+        in_dims = _vmap_in_dims(args)
         with pp.retain_ltype():
-            jac_blocks = torch.vmap(jacrev(func, argnums=argnums))(*args)
+            jac_blocks = torch.vmap(jacrev(func, argnums=argnums), in_dims=in_dims)(*args)
         for jacidx, argidx in enumerate(argnums):
             jac_block = jac_blocks[jacidx]
             arg = args[argidx]
