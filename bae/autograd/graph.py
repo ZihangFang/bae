@@ -7,7 +7,7 @@ import torch
 from torch.func import jacrev
 
 from ..sparse import warp_wrappers as _warp_wrappers  # noqa: F401
-from ..utils.parameter import trim_parameter_jacobian_values
+from ..utils.parameter import parameter_update_shape, trim_parameter_jacobian_values
 
 
 def _crow_to_row_indices(crow_indices: torch.Tensor) -> torch.Tensor:
@@ -111,6 +111,56 @@ def construct_sbt(jac_from_vmap, num, index: Optional[torch.Tensor], type=torch.
                                     values = jac_from_vmap,
                                     size = (n * block_shape[0], num * block_shape[1]),
                                     device=index.device, dtype=jac_from_vmap.dtype)
+
+
+def _empty_parameter_bsr(output: torch.Tensor, param: torch.Tensor) -> torch.Tensor:
+    row_blocks = output.shape[0]
+    row_block_dim = 1 if output.ndim == 1 else output.shape[-1]
+    step_shape = parameter_update_shape(param)
+    col_block_dim = 1 if len(step_shape) == 0 else step_shape[-1]
+    idx_dtype = torch.int32
+    return torch.sparse_bsr_tensor(
+        crow_indices=torch.zeros(row_blocks + 1, device=output.device, dtype=idx_dtype),
+        col_indices=torch.empty(0, device=output.device, dtype=idx_dtype),
+        values=torch.empty(
+            (0, row_block_dim, col_block_dim),
+            device=output.device,
+            dtype=output.dtype,
+        ),
+        size=(row_blocks * row_block_dim, 0),
+        device=output.device,
+        dtype=output.dtype,
+    )
+
+
+def _compact_parameter_bsr(jac: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    col_indices = jac.col_indices()
+    if col_indices.numel() == 0:
+        return jac, col_indices
+
+    active_indices, remapped = torch.unique(col_indices, sorted=True, return_inverse=True)
+    if active_indices.numel() == 0:
+        return jac, active_indices
+
+    col_block_dim = jac.values().shape[-1]
+    if active_indices.numel() == jac.shape[1] // col_block_dim:
+        expected = torch.arange(
+            active_indices.numel(),
+            device=active_indices.device,
+            dtype=active_indices.dtype,
+        )
+        if torch.equal(active_indices, expected):
+            return jac, active_indices
+
+    compact = torch.sparse_bsr_tensor(
+        crow_indices=jac.crow_indices(),
+        col_indices=remapped.to(dtype=col_indices.dtype),
+        values=jac.values(),
+        size=(jac.shape[0], active_indices.numel() * col_block_dim),
+        device=jac.device,
+        dtype=jac.dtype,
+    )
+    return compact, active_indices
 
 def _clear_jactrace(output, params):
     seen = set()
@@ -313,7 +363,7 @@ def backward(output_, is_root=False):
             delattr(output_, 'jactrace')
 
 
-def jacobian(output, params):
+def jacobian(output, params, check_unused: bool = False):
     assert output.optrace[id(output)][0] in ('map', 'index', 'cat'), "Unsupported last operation in compute graph"
     _clear_jactrace(output, params)
     try:
@@ -341,7 +391,15 @@ def jacobian(output, params):
                         )
                 if type(param.jactrace) is tuple:
                     param.jactrace = construct_sbt(param.jactrace[1], param.shape[0], param.jactrace[0], type=torch.sparse_bsr)
-                res.append(param.jactrace)
+                jac = param.jactrace
+                if check_unused:
+                    jac, active_indices = _compact_parameter_bsr(jac)
+                    param.active_indices = active_indices
+                res.append(jac)
+            elif check_unused:
+                jac = _empty_parameter_bsr(output, param)
+                param.active_indices = torch.empty(0, device=param.device, dtype=torch.int32)
+                res.append(jac)
         return res
     finally:
         _clear_jactrace(output, params)

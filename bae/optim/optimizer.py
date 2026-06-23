@@ -1,3 +1,4 @@
+import copy
 from functools import partial
 import torch
 from pypose.optim import LevenbergMarquardt as ppLM
@@ -17,10 +18,38 @@ from bae.sparse.warp_wrappers import format_vec_for_bsr, torchbsr2wp, wp2torchbs
 
 
 class LM(ppLM):
-    def __init__(self, *args, matrix_free_normal: bool = False, **kwargs):
+    def __init__(self, *args, matrix_free_normal: bool = False, check_unused: bool = False, **kwargs):
         self.matrix_free_normal = matrix_free_normal
+        self.check_unused = check_unused
         super(LM, self).__init__(*args, **kwargs)
         self.mm = CuSparse()
+        self._solver_template = copy.deepcopy(self.solver) if check_unused else None
+        self._jacobian_sparsity_signature = None
+
+    @staticmethod
+    def _compare_signature(lhs, rhs):
+        if lhs is None or rhs is None:
+            return lhs is rhs
+        if len(lhs) != len(rhs):
+            return False
+        return all(
+            lshape == rshape and torch.equal(lcrow_indices, rcrow_indices) and torch.equal(lcol_indices, rcol_indices)
+            for (lshape, lcrow_indices, lcol_indices), (rshape, rcrow_indices, rcol_indices) in zip(lhs, rhs)
+        )
+
+    def _update_signature(self, jacobians):
+        signature = [
+            (tuple(j.shape), j.crow_indices().clone(), j.col_indices().clone())
+            for j in jacobians
+        ]
+        if self._jacobian_sparsity_signature is not None and not self._compare_signature(
+            self._jacobian_sparsity_signature,
+            signature,
+        ):
+            self.mm = CuSparse()
+            if self._solver_template is not None:
+                self.solver = copy.deepcopy(self._solver_template)
+        self._jacobian_sparsity_signature = signature
 
     @torch.no_grad()
     def step(self, input, target=None, weight=None):
@@ -28,7 +57,11 @@ class LM(ppLM):
             weight = self.weight if weight is None else weight
             R = list(self.model(input))
             R = R[0]
-            J = jacobian(R, pg['params'])
+            if self.check_unused:
+                J = jacobian(R, pg['params'], check_unused=True)
+                self._update_signature(J)
+            else:
+                J = jacobian(R, pg['params'])
             if isinstance(R, TrackingTensor):
                 R = R.tensor()
             J = torch.cat([j.to_sparse_coo() for j in J], dim=-1).to_sparse_csr()
@@ -71,20 +104,46 @@ class LM(ppLM):
         return self.loss
 
     def update_parameter(self, params, step):
-        numels = []
+        step_flat = step.reshape(-1)
+        offset = 0
+
         for param in params:
-            if param.requires_grad:
-                numels.append(torch.Size(parameter_update_shape(param)).numel())
-        steps = step.split(numels)
-        for (param, d) in zip(params, steps):
-            if param.requires_grad:
-                step_view = d.view(parameter_update_shape(param))
+            if not param.requires_grad:
+                continue
+
+            if self.check_unused:
+                active_indices = param.active_indices.to(dtype=torch.long, device=param.device)
+                local_shape = (active_indices.numel(),) + tuple(parameter_update_shape(param)[1:])
+                chunk_size = torch.Size(local_shape).numel()
+                chunk = step_flat[offset:offset + chunk_size]
+                offset += chunk_size
+                if active_indices.numel() == 0:
+                    continue
+                step_view = chunk.view(local_shape)
                 if getattr(param, 'trim_SE3_grad', False):
-                    param[..., :7] = pp.SE3(param[..., :7]).add_(pp.se3(step_view[..., :6]))
+                    param[active_indices, :7] = pp.SE3(param[active_indices, :7]).add_(pp.se3(step_view[..., :6]))
                     if param.shape[-1] > 7:
-                        param[:, 7:] += step_view[..., 6:]
+                        param[active_indices, 7:] += step_view[..., 6:]
                 else:
-                    param.add_(step_view)
+                    active = param[active_indices]
+                    param[active_indices] = active.add_(step_view.view(active.shape))
+                continue
+
+            chunk_size = torch.Size(parameter_update_shape(param)).numel()
+            chunk = step_flat[offset:offset + chunk_size]
+            offset += chunk_size
+            step_view = chunk.view(parameter_update_shape(param))
+            if getattr(param, 'trim_SE3_grad', False):
+                param[..., :7] = pp.SE3(param[..., :7]).add_(pp.se3(step_view[..., :6]))
+                if param.shape[-1] > 7:
+                    param[:, 7:] += step_view[..., 6:]
+            else:
+                param.add_(step_view)
+        if offset != step_flat.numel():
+            raise RuntimeError(
+                f"Step vector size mismatch: consumed {offset} elements from a step of length "
+                f"{step_flat.numel()}."
+            )
 
 
 class Schur(LM):
@@ -94,7 +153,11 @@ class Schur(LM):
             self.reject_count = 0
             weight = self.weight if weight is None else weight
             R = self.model(input, target)[0]
-            J = jacobian(R, pg['params'])
+            if self.check_unused:
+                J = jacobian(R, pg['params'], check_unused=True)
+                self._update_signature(J)
+            else:
+                J = jacobian(R, pg['params'])
 
             self.last = self.loss = self.loss if hasattr(self, 'loss') else self.model.loss(input, target)
             J0wp = torchbsr2wp(J[0])
