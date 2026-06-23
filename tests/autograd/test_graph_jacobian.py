@@ -165,6 +165,16 @@ class OptionalArgResidual(nn.Module):
         return _map_with_optional_bias(self.points[idx], scale, None) - obs
 
 
+class OneSidedResidual(nn.Module):
+    def __init__(self, A: torch.Tensor, B: torch.Tensor):
+        super().__init__()
+        self.A = pp.Parameter(A, sjac=True)
+        self.B = pp.Parameter(B, sjac=True)
+
+    def forward(self, obs: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+        return self.A[idx] - obs
+
+
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_sparse_jacobian_psjac_treats_inner_cat_as_opaque(device: str):
     if device == "cuda" and not torch.cuda.is_available():
@@ -229,6 +239,46 @@ def test_sparse_jacobian_psjac_allows_none_constant_args(device: str):
     (J_points,) = jacrev(f, argnums=(0,))(points0)
     torch.testing.assert_close(J_sparse.to_dense(), _flatten_jac(J_points), rtol=1e-10, atol=1e-10)
     assert torch.equal(J_sparse.col_indices(), idx)
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_sparse_jacobian_check_unused_compacts_and_keeps_unused_params(device: str):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA not available")
+
+    torch.manual_seed(0)
+    dtype = torch.float64
+
+    A0 = torch.randn(5, 3, device=device, dtype=dtype, requires_grad=True)
+    B0 = torch.randn(4, 3, device=device, dtype=dtype, requires_grad=True)
+    idx = torch.tensor([0, 2, 2, 4], device=device, dtype=torch.int32)
+    obs = torch.randn(idx.numel(), 3, device=device, dtype=dtype)
+
+    model = OneSidedResidual(A0, B0)
+    out = model(obs, idx)
+
+    J_sparse = sparse_jacobian(out, [model.A, model.B], check_unused=True)
+
+    assert len(J_sparse) == 2
+
+    active_a = model.A.active_indices
+    active_b = model.B.active_indices
+    assert torch.equal(active_a, torch.tensor([0, 2, 4], device=device, dtype=active_a.dtype))
+    assert active_b.numel() == 0
+
+    assert J_sparse[0].shape == (idx.numel() * 3, active_a.numel() * 3)
+    assert J_sparse[1].shape == (idx.numel() * 3, 0)
+
+    def f(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
+        del B
+        return A[idx] - obs
+
+    JA, _ = jacrev(f, argnums=(0, 1))(A0, B0)
+    JA_dense = _flatten_jac(JA).reshape(idx.numel() * 3, A0.shape[0], A0.shape[1])
+    expected = JA_dense[:, active_a.to(torch.long)].reshape(idx.numel() * 3, -1)
+
+    torch.testing.assert_close(J_sparse[0].to_dense(), expected, rtol=1e-10, atol=1e-10)
+    assert J_sparse[1].to_dense().numel() == 0
 
 
 class CatResidual(nn.Module):
