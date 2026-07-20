@@ -94,6 +94,8 @@ def test_sparse_jacobian_matches_torch_jacrev(device: str):
 
     model = ToyResidual(A0, B0)
     out = model(obs, idx_a, idx_b, sel)
+    assert isinstance(out.optrace, tuple)
+    assert out.optrace[0] == "map"
 
     J_sparse = sparse_jacobian(out, [model.A, model.B])
     assert len(J_sparse) == 2
@@ -447,6 +449,7 @@ def test_pp_parameter_lie_tensor_index_and_cat_preserve_ltype(device: str):
     assert isinstance(node_a, pp.LieTensor)
     assert type(node_a.ltype) is type(nodes.ltype)
     assert hasattr(node_a, "optrace")
+    assert isinstance(node_a.optrace, tuple)
     assert node_a.optrace[0] == "index"
 
     assert node_a.tensor().shape == (idx_a.numel(), 7)
@@ -458,6 +461,7 @@ def test_pp_parameter_lie_tensor_index_and_cat_preserve_ltype(device: str):
     assert isinstance(cat, pp.LieTensor)
     assert type(cat.ltype) is type(nodes.ltype)
     assert hasattr(cat, "optrace")
+    assert isinstance(cat.optrace, tuple)
     assert cat.optrace[0] == "cat"
     assert cat.translation().shape == (idx_a.numel() + idx_b.numel(), 3)
 

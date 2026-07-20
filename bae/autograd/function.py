@@ -205,29 +205,10 @@ class _TrackingLieTensor(TrackingTensor, pp.LieTensor):
         detached = torch.Tensor(self).detach().as_subclass(type(self))
         detached.ltype = self.ltype
         return detached
-r"""
-graph design
-Node: (tensor_type: [nn.Parameter, tensor, pp.LieTensor])
-Edge: (indexing, mapping)
-
-G: (V: [Node...], E: [Edge...])
-
-for each e = (u, v) \in E
-parent[loss] = (project, [camera_indexed, point_indexed])
-parent[camera_indexed] = ((indexing, indices), camera_parameters)
-
-build
-Each tracked tensor stores one ``optrace`` edge directly: a map edge
-``(edge_type, func, input_args)`` or index edge ``(edge_type, index, original)``.
-
-backward
-1. access loss.parent
-2. check edge type
-3.1. if indexing, permute value
-3.2. if mapping, revise value
-
-recusively call 1-3 until input node is reached. 
-"""
+# Each tracked tensor stores its incoming edge directly as
+# ``(edge_type, edge_metadata, inputs)`` in ``tensor.optrace``. A tensor owns
+# exactly one incoming edge, so an additional dictionary keyed by ``id(tensor)``
+# would be redundant.
 
 
 # =============================================================================

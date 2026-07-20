@@ -26,14 +26,6 @@ class BSRJacobianData(NamedTuple):
     size: tuple[int, int]
 
 
-def _get_optrace(tensor: torch.Tensor):
-    """Return a trace edge, accepting the pre-Dynamo dictionary format too."""
-    trace = tensor.optrace
-    if isinstance(trace, dict):
-        return trace[id(tensor)]
-    return trace
-
-
 def _is_indexed_trace_arg(arg) -> bool:
     return isinstance(arg, tuple) and len(arg) == 3 and arg[0] == _INDEXED_TRACE_TAG
 
@@ -162,7 +154,7 @@ def _clear_jactrace(output, params):
         if not hasattr(tensor, 'optrace'):
             continue
 
-        trace = _get_optrace(tensor)
+        trace = tensor.optrace
         op = trace[0]
         if op == 'map':
             args = trace[2]
@@ -301,7 +293,7 @@ def _functional_backward(output, upstream, params, contributions):
     Runtime Jacobian state is represented only by tensor tuples, rather than by
     adding and deleting ``jactrace`` attributes on Tensor/FakeTensor objects.
     """
-    output_trace = _get_optrace(output)
+    output_trace = output.optrace
     op = output_trace[0]
 
     if op == "map":
@@ -393,7 +385,7 @@ def jacobian_components(output, params):
     components arise when distinct compute-graph branches contribute to the
     same parameter and are combined during eager materialization.
     """
-    assert _get_optrace(output)[0] in (
+    assert output.optrace[0] in (
         "map",
         "index",
         "cat",
@@ -459,7 +451,7 @@ def backward(output_, is_root=False):
     if (not is_root) and (not hasattr(output_, 'jactrace')):
         return
 
-    output_trace = _get_optrace(output_)
+    output_trace = output_.optrace
     if output_trace[0] == 'map':
         func = output_trace[1]
         args = tuple(_materialize_trace_arg(arg) for arg in output_trace[2])
@@ -590,7 +582,7 @@ def backward(output_, is_root=False):
 
 
 def jacobian(output, params):
-    assert _get_optrace(output)[0] in ('map', 'index', 'cat'), "Unsupported last operation in compute graph"
+    assert output.optrace[0] in ('map', 'index', 'cat'), "Unsupported last operation in compute graph"
     _clear_jactrace(output, params)
     try:
         backward(output, is_root=True)
