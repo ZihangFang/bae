@@ -80,8 +80,12 @@ def install_pypose_torch_compile_monkeypatch() -> bool:
         # Access __name__ directly. Dynamo cannot trace hasattr() on the method
         # wrappers used by Tensor properties such as shape.
         if data is not None and func.__name__ in lt.HANDLED_FUNCTIONS:
-            flat_args, _ = tree_flatten(args)
-            ltype = next(arg.ltype for arg in flat_args if isinstance(arg, lt.LieTensor))
+            flat_inputs, _ = tree_flatten((args, kwargs))
+            ltype = next(
+                arg.ltype
+                for arg in flat_inputs
+                if isinstance(arg, lt.LieTensor)
+            )
 
             def wrap(tensor):
                 if isinstance(tensor, torch.Tensor) and not isinstance(tensor, cls):

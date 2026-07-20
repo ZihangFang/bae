@@ -66,6 +66,29 @@ def test_lietensor_tensor_alias_is_fullgraph_traceable_and_differentiable():
     assert inverse.ltype is pp.SE3_type
 
 
+@pytest.mark.parametrize(
+    "operation",
+    (
+        lambda value: torch.clone(input=value),
+        lambda value: torch.cat(tensors=(value, value), dim=0),
+        lambda value: torch.reshape(input=value, shape=(1, 2, 4)),
+    ),
+    ids=("clone", "cat", "reshape"),
+)
+def test_lietensor_keyword_inputs_preserve_ltype_in_fullgraph(operation):
+    value = pp.randn_SO3(2, dtype=torch.float64)
+
+    expected = operation(value)
+    compiled = torch.compile(operation, backend="eager", fullgraph=True)
+    actual = compiled(value)
+
+    assert isinstance(expected, pp.LieTensor)
+    assert isinstance(actual, pp.LieTensor)
+    assert expected.ltype is pp.SO3_type
+    assert actual.ltype is pp.SO3_type
+    torch.testing.assert_close(actual.tensor(), expected.tensor())
+
+
 def test_ambient_se3_pipeline_is_fullgraph_traceable_with_local_gradients():
     install_pypose_ambient_grad_monkeypatch()
     dtype = torch.float64
