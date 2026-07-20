@@ -132,7 +132,7 @@ python -m pip install git+https://github.com/pypose/bae.git
    python -m pip install --no-build-isolation -v -e .  # following https://github.com/pytorch/pytorch
    ```
 
-### `torch.compile` with PyPose
+### `torch.compile` with `LieTensor`
 
 Enable the `LieTensor` TorchDynamo compatibility shim before importing either
 `pypose` or `bae`:
@@ -158,10 +158,10 @@ compiled_model = torch.compile(model, fullgraph=True)
 With `fullgraph=True`, indexed `sjac=True` parameters retain their sparse
 Jacobian dependency trace without forcing the gathered camera and point blocks
 to escape the compiled graph. This gives Inductor the opportunity to load
-permuted rows directly inside fused kernels, but does not guarantee that it will
-do so. Inductor may instead materialize standalone indexed tensors when the
+permuted rows directly inside fused kernels. Inductor will decide the most efficient way, 
+whether to materialize standalone indexed tensors when the
 gathered values have multiple downstream consumers, as can happen during
-Jacobian computation. `fullgraph=True` guarantees graph capture rather than a
+Jacobian computation. `fullgraph=True` guarantees graph capture but does not ensure 
 particular kernel-fusion or buffer-allocation strategy.
 
 PyTorch cannot currently represent a sparse BSR tensor as a FakeTensor/AOT
