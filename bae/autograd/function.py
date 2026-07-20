@@ -48,7 +48,11 @@ def _attach_cat_trace(result, tensors, dim):
     offset = 0
     for t in tensors:
         n = t.shape[0]
-        if hasattr(t, 'optrace') or isinstance(t, torch.nn.Parameter):
+        if (
+            hasattr(t, "optrace")
+            or isinstance(t, TrackingTensor)
+            or isinstance(t, torch.nn.Parameter)
+        ):
             tracked.append((offset, offset + n, t))
         offset += n
     result.optrace = ("cat", dim, tuple(tracked))
@@ -106,7 +110,7 @@ def _retain_ltype(result, tracking_source, cls, func):
         return result
     if result.shape[-1:] != tracking_source.ltype.dimension:
         return result
-    wrapped = torch.Tensor.as_subclass(result, cls)
+    wrapped = torch.Tensor(result).as_subclass(cls)
     wrapped.ltype = tracking_source.ltype
     return wrapped
 
@@ -198,10 +202,10 @@ class _TrackingLieTensor(TrackingTensor, pp.LieTensor):
         return instance
 
     def detach(self):
-        detached = torch.Tensor.as_subclass(super().detach(), type(self))
+        detached = torch.Tensor(self).detach().as_subclass(type(self))
         detached.ltype = self.ltype
         return detached
-"""
+r"""
 graph design
 Node: (tensor_type: [nn.Parameter, tensor, pp.LieTensor])
 Edge: (indexing, mapping)

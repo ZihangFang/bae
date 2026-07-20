@@ -73,11 +73,26 @@ def test_compiled_indexed_residual_preserves_sparse_jacobian(device: str):
     )
 
     compiled_model = Residual(cameras.clone(), points.clone()).to(device)
-    compiled_model = torch.compile(compiled_model, backend="eager", fullgraph=True)
-    actual = compiled_model(observations, camera_indices, point_indices)
-    actual_jacobians = autograd_graph.jacobian(
-        actual, [compiled_model.pose, compiled_model.points]
+
+    def residual_and_jacobian_components(observations, camera_indices, point_indices):
+        residual = compiled_model(observations, camera_indices, point_indices)
+        components = autograd_graph.jacobian_components(
+            residual, (compiled_model.pose, compiled_model.points)
+        )
+        return residual, components
+
+    backend = "inductor" if device == "cuda" else "eager"
+    compiled = torch.compile(
+        residual_and_jacobian_components,
+        backend=backend,
+        fullgraph=True,
     )
+    actual, components = compiled(observations, camera_indices, point_indices)
+    actual_jacobians = autograd_graph.materialize_jacobian_components(components)
+
+    for component_group, actual_jacobian in zip(components, actual_jacobians):
+        assert len(component_group) == 1
+        assert component_group[0].values.data_ptr() == actual_jacobian.values().data_ptr()
 
     torch.testing.assert_close(actual.tensor(), expected.tensor())
     for actual_jacobian, expected_jacobian in zip(

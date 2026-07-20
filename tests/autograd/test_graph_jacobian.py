@@ -10,6 +10,7 @@ os.environ.setdefault("BAE_USE_PYPOSE_AMBIENT_GRAD", "1")
 
 from pypose.autograd.function import psjac
 from bae.autograd.graph import jacobian as sparse_jacobian
+from bae.autograd.graph import jacobian_components, materialize_jacobian_components
 from bae.utils.retraction_jacobian import se3_retraction_jacobian
 from bae.utils.pypose_ambient_grad import (
     install_pypose_ambient_grad_monkeypatch,
@@ -296,6 +297,17 @@ def test_sparse_jacobian_cat_dim0_matches_torch_jacrev(device: str):
     assert JB_sparse.crow_indices()[-1].item() == n_b
     assert torch.equal(JB_sparse.col_indices(), idx_b)
 
+    def compiled_components(*args):
+        residual = model(*args)
+        return jacobian_components(residual, (model.A, model.B))
+
+    components = torch.compile(
+        compiled_components, backend="eager", fullgraph=True
+    )(obs_a, obs_b, idx_a, idx_b, mul_a, mul_b)
+    compiled_jacobians = materialize_jacobian_components(components)
+    torch.testing.assert_close(compiled_jacobians[0].to_dense(), JA_sparse.to_dense())
+    torch.testing.assert_close(compiled_jacobians[1].to_dense(), JB_sparse.to_dense())
+
 
 class CatSubResidual(nn.Module):
     def __init__(self, A: torch.Tensor, B: torch.Tensor):
@@ -403,6 +415,17 @@ def test_sparse_jacobian_index_after_cat_matches_torch_jacrev(device: str):
     torch.testing.assert_close(JA_sparse.to_dense(), _flatten_jac(JA), rtol=1e-10, atol=1e-10)
     torch.testing.assert_close(JB_sparse.to_dense(), _flatten_jac(JB), rtol=1e-10, atol=1e-10)
 
+    def compiled_components(obs, index):
+        residual = model(obs, index)
+        return jacobian_components(residual, (model.A, model.B))
+
+    components = torch.compile(
+        compiled_components, backend="eager", fullgraph=True
+    )(obs, idx)
+    compiled_jacobians = materialize_jacobian_components(components)
+    torch.testing.assert_close(compiled_jacobians[0].to_dense(), JA_sparse.to_dense())
+    torch.testing.assert_close(compiled_jacobians[1].to_dense(), JB_sparse.to_dense())
+
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_pp_parameter_lie_tensor_index_and_cat_preserve_ltype(device: str):
@@ -471,3 +494,19 @@ def test_sparse_jacobian_matches_lie_tensor_pgo_residual(device: str):
     else:
         J_ref = _flatten_jac(J_dense[..., :6])
     torch.testing.assert_close(J_sparse.to_dense(), J_ref, rtol=1e-10, atol=1e-10)
+
+    def compiled_components(poses, first_indices, second_indices):
+        residual = _relative_se3_residual(
+            poses,
+            model[first_indices],
+            model[second_indices],
+        )
+        return jacobian_components(residual, (model,))
+
+    components = torch.compile(
+        compiled_components, backend="eager", fullgraph=True
+    )(poses, idx1, idx2)
+    (compiled_jacobian,) = materialize_jacobian_components(components)
+    torch.testing.assert_close(
+        compiled_jacobian.to_dense(), J_sparse.to_dense(), rtol=1e-10, atol=1e-10
+    )

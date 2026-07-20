@@ -158,9 +158,40 @@ compiled_model = torch.compile(model, fullgraph=True)
 
 With `fullgraph=True`, indexed `sjac=True` parameters retain their sparse
 Jacobian dependency trace without forcing the gathered camera and point blocks
-to escape the compiled graph. Inductor can therefore load permuted rows directly
-inside the fused residual kernels instead of allocating standalone indexed
-camera and point tensors.
+to escape the compiled graph. This gives Inductor the opportunity to load
+permuted rows directly inside fused kernels, but does not guarantee that it will
+do so. Inductor may instead materialize standalone indexed tensors when the
+gathered values have multiple downstream consumers, as can happen during
+Jacobian computation. `fullgraph=True` guarantees graph capture rather than a
+particular kernel-fusion or buffer-allocation strategy.
+
+PyTorch cannot currently represent a sparse BSR tensor as a FakeTensor/AOT
+graph output. To compile the residual and sparse-Jacobian traversal together,
+return its dense component tensors from the compiled function and materialize
+the BSR wrapper immediately afterward:
+
+```python
+from bae.autograd.graph import (
+    jacobian_components,
+    materialize_jacobian_components,
+)
+
+def residual_and_jacobian(observations, camera_indices, point_indices):
+    residual = model(observations, camera_indices, point_indices)
+    components = jacobian_components(
+        residual, (model.pose, model.points)
+    )
+    return residual, components
+
+compiled = torch.compile(residual_and_jacobian, fullgraph=True)
+residual, components = compiled(observations, camera_indices, point_indices)
+jacobians = materialize_jacobian_components(components)
+```
+
+The component traversal and Jacobian values are compiled. For one component per
+parameter, as in the BA residual above, BSR materialization is an eager,
+zero-copy wrapper operation. Graphs with multiple contributions to the same
+parameter additionally combine those sparse components after materialization.
 
 ## Agent Skills
 

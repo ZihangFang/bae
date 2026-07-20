@@ -25,7 +25,7 @@ def trim_parameter_jacobian_values(
     if getattr(param, 'trim_SE3_grad', False):
         if not pypose_ambient_grad_enabled():
             return torch.cat([values[..., :6], values[..., 7:]], dim=-1)
-        pose = param[..., :7].detach()
+        pose = torch.Tensor(param)[..., :7].detach()
         if block_indices is not None:
             pose = pose[block_indices.to(torch.long)]
         pose_values = values[..., :7] @ se3_retraction_jacobian(pose)
@@ -34,7 +34,7 @@ def trim_parameter_jacobian_values(
         return torch.cat([pose_values, values[..., 7:]], dim=-1)
     if isinstance(param, pp.LieTensor):
         if pypose_ambient_grad_enabled():
-            lie_param = param.detach()
+            lie_param = torch.Tensor(param).detach()
             if block_indices is not None:
                 lie_param = lie_param[block_indices.to(torch.long)]
             if param.ltype == pp.SO3_type:
