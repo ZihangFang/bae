@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import pypose as pp
 from functools import wraps
+from torch.utils._pytree import tree_map
 
 WHITELISTED_MAPS = tuple(
     func for func in (
@@ -23,6 +24,8 @@ _LTYPE_PRESERVING_FUNCS = {
     torch._C.TensorBase.to,
 }
 
+_INDEXED_TRACE_TAG = "bae.indexed"
+
 
 def _iter_tracked_tensors(values):
     if isinstance(values, torch.Tensor):
@@ -36,9 +39,7 @@ def _iter_tracked_tensors(values):
 
 
 def _attach_index_trace(result, index, tensor):
-    if not hasattr(result, 'optrace'):
-        result.optrace = {}
-    result.optrace[id(result)] = ("index", index, tensor)
+    result.optrace = ("index", index, tensor)
     return result
 
 
@@ -47,16 +48,29 @@ def _attach_cat_trace(result, tensors, dim):
     offset = 0
     for t in tensors:
         n = t.shape[0]
-        if hasattr(t, 'optrace') or isinstance(t, torch.nn.Parameter):
+        if (
+            hasattr(t, "optrace")
+            or isinstance(t, TrackingTensor)
+            or isinstance(t, torch.nn.Parameter)
+        ):
             tracked.append((offset, offset + n, t))
         offset += n
-    result.optrace = {id(result): ("cat", dim, tuple(tracked))}
+    result.optrace = ("cat", dim, tuple(tracked))
     return result
 
 
 def _attach_map_trace(result, func, args):
-    result.optrace = {id(result): ("map", func, args)}
+    compact_args = tuple(_compact_map_arg(arg) for arg in args)
+    result.optrace = ("map", func, compact_args)
     return result
+
+
+def _compact_map_arg(arg):
+    if isinstance(arg, TrackingTensor) and hasattr(arg, "optrace"):
+        trace = arg.optrace
+        if trace[0] == "index":
+            return (_INDEXED_TRACE_TAG, trace[2], trace[1])
+    return arg
 
 
 def _find_tracking_source(values, cls):
@@ -69,23 +83,16 @@ def _find_tracking_source(values, cls):
 def _unwrap_tracking_tensor(value):
     if not isinstance(value, TrackingTensor):
         return value
+    base = torch.Tensor(value)
     if isinstance(value, pp.LieTensor):
-        unwrapped = torch.Tensor.as_subclass(value, pp.LieTensor)
+        unwrapped = base.as_subclass(pp.LieTensor)
         unwrapped.ltype = value.ltype
         return unwrapped
-    return torch.Tensor.as_subclass(value, torch.Tensor)
+    return base
 
 
 def _unwrap_tracking_tensors(values):
-    if isinstance(values, TrackingTensor):
-        return _unwrap_tracking_tensor(values)
-    if isinstance(values, dict):
-        return {key: _unwrap_tracking_tensors(value) for key, value in values.items()}
-    if isinstance(values, tuple):
-        return tuple(_unwrap_tracking_tensors(value) for value in values)
-    if isinstance(values, list):
-        return [_unwrap_tracking_tensors(value) for value in values]
-    return values
+    return tree_map(_unwrap_tracking_tensor, values)
 
 
 def _rewrap_tracking_tensor(result, tracking_source):
@@ -103,7 +110,7 @@ def _retain_ltype(result, tracking_source, cls, func):
         return result
     if result.shape[-1:] != tracking_source.ltype.dimension:
         return result
-    wrapped = torch.Tensor.as_subclass(result, cls)
+    wrapped = torch.Tensor(result).as_subclass(cls)
     wrapped.ltype = tracking_source.ltype
     return wrapped
 
@@ -178,7 +185,7 @@ class TrackingTensor(torch.Tensor):
         return format(str(self), format_spec)
         
     def tensor(self) -> torch.Tensor:
-        return torch.Tensor.as_subclass(self, torch.Tensor)
+        return torch.Tensor(self)
 
 
 class _TrackingLieTensor(TrackingTensor, pp.LieTensor):
@@ -195,31 +202,13 @@ class _TrackingLieTensor(TrackingTensor, pp.LieTensor):
         return instance
 
     def detach(self):
-        detached = torch.Tensor.as_subclass(super().detach(), type(self))
+        detached = torch.Tensor(self).detach().as_subclass(type(self))
         detached.ltype = self.ltype
         return detached
-"""
-graph design
-Node: (tensor_type: [nn.Parameter, tensor, pp.LieTensor])
-Edge: (indexing, mapping)
-
-G: (V: [Node...], E: [Edge...])
-
-for each e = (u, v) \in E
-parent[loss] = (project, [camera_indexed, point_indexed])
-parent[camera_indexed] = ((indexing, indices), camera_parameters)
-
-build
-parent: key: id(tensor), value: map edge (edge_type, func, [input_args]), index edge (edge_type, indicies, orig_arg)
-
-backward
-1. access loss.parent
-2. check edge type
-3.1. if indexing, permute value
-3.2. if mapping, revise value
-
-recusively call 1-3 until input node is reached. 
-"""
+# Each tracked tensor stores its incoming edge directly as
+# ``(edge_type, edge_metadata, inputs)`` in ``tensor.optrace``. A tensor owns
+# exactly one incoming edge, so an additional dictionary keyed by ``id(tensor)``
+# would be redundant.
 
 
 # =============================================================================

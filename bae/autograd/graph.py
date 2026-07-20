@@ -1,5 +1,5 @@
 
-from typing import Optional
+from typing import NamedTuple, Optional
 import warnings
 
 import pypose as pp
@@ -8,6 +8,34 @@ from torch.func import jacrev
 
 from ..sparse import warp_wrappers as _warp_wrappers  # noqa: F401
 from ..utils.parameter import trim_parameter_jacobian_values
+from .function import _INDEXED_TRACE_TAG
+
+
+class BSRJacobianData(NamedTuple):
+    """Dense tensor components of a BSR Jacobian.
+
+    PyTorch's FakeTensor/AOTAutograd stack cannot currently represent a sparse
+    BSR graph output. Returning its component tensors keeps Jacobian traversal
+    and value computation inside the compiled graph; materialization into a
+    sparse Tensor is a zero-copy eager wrapper operation after the call.
+    """
+
+    crow_indices: torch.Tensor
+    col_indices: torch.Tensor
+    values: torch.Tensor
+    size: tuple[int, int]
+
+
+def _is_indexed_trace_arg(arg) -> bool:
+    return isinstance(arg, tuple) and len(arg) == 3 and arg[0] == _INDEXED_TRACE_TAG
+
+
+def _materialize_trace_arg(arg):
+    #  produces an ordinary aten.index; it enables Inductor to choose fusion but does not force it.
+    if _is_indexed_trace_arg(arg):
+        _, tensor, index = arg
+        return tensor[index]
+    return arg
 
 
 def _crow_to_row_indices(crow_indices: torch.Tensor) -> torch.Tensor:
@@ -17,12 +45,12 @@ def _crow_to_row_indices(crow_indices: torch.Tensor) -> torch.Tensor:
 
 
 def _row_indices_to_crow(row_indices: torch.Tensor, n_rows: int, dtype: torch.dtype) -> torch.Tensor:
-    if row_indices.numel() == 0:
-        return torch.zeros(n_rows + 1, device=row_indices.device, dtype=dtype)
-    counts = torch.bincount(row_indices.to(torch.int64), minlength=n_rows).to(dtype)
-    crow = torch.zeros(n_rows + 1, device=row_indices.device, dtype=dtype)
-    crow[1:] = torch.cumsum(counts, dim=0)
-    return crow
+    row_boundaries = torch.arange(
+        n_rows + 1,
+        device=row_indices.device,
+        dtype=row_indices.dtype,
+    )
+    return torch.searchsorted(row_indices, row_boundaries).to(dtype)
 
 
 def _slice_upstream_bsr_columns(
@@ -109,8 +137,7 @@ def construct_sbt(jac_from_vmap, num, index: Optional[torch.Tensor], type=torch.
         return torch.sparse_bsr_tensor(col_indices=index, 
                                     crow_indices=torch.arange(n + 1, device=index.device, dtype=idx_dtype),
                                     values = jac_from_vmap,
-                                    size = (n * block_shape[0], num * block_shape[1]),
-                                    device=index.device, dtype=jac_from_vmap.dtype)
+                                    size = (n * block_shape[0], num * block_shape[1]))
 
 def _clear_jactrace(output, params):
     seen = set()
@@ -124,19 +151,24 @@ def _clear_jactrace(output, params):
         if hasattr(tensor, 'jactrace'):
             delattr(tensor, 'jactrace')
 
-        if not hasattr(tensor, 'optrace') or id(tensor) not in tensor.optrace:
+        if not hasattr(tensor, 'optrace'):
             continue
 
-        op = tensor.optrace[id(tensor)][0]
+        trace = tensor.optrace
+        op = trace[0]
         if op == 'map':
-            args = tensor.optrace[id(tensor)][2]
-            stack.extend(arg for arg in args if isinstance(arg, torch.Tensor))
+            args = trace[2]
+            for arg in args:
+                if _is_indexed_trace_arg(arg):
+                    stack.append(arg[1])
+                elif isinstance(arg, torch.Tensor):
+                    stack.append(arg)
         elif op == 'index':
-            arg = tensor.optrace[id(tensor)][2]
+            arg = trace[2]
             if isinstance(arg, torch.Tensor):
                 stack.append(arg)
         elif op == 'cat':
-            tracked = tensor.optrace[id(tensor)][2]  # ((start, end, arg), ...)
+            tracked = trace[2]  # ((start, end, arg), ...)
             stack.extend(item[2] for item in tracked if isinstance(item[2], torch.Tensor))
 
 
@@ -178,15 +210,256 @@ def _vmap_in_dims(args):
     """Map Tensor inputs over dim 0 while treating non-Tensors as constants."""
     return tuple(0 if isinstance(arg, torch.Tensor) else None for arg in args)
 
+
+def _restore_lie_inputs(func, args):
+    """Reconstruct LieTensor inputs after functorch strips subclass metadata."""
+    ltypes = tuple(
+        arg.ltype if isinstance(arg, pp.LieTensor) else None for arg in args
+    )
+    if not any(ltype is not None for ltype in ltypes):
+        return func
+
+    def wrapped(*values):
+        values = tuple(
+            pp.LieTensor(value, ltype=ltype) if ltype is not None else value
+            for value, ltype in zip(values, ltypes)
+        )
+        return func(*values)
+
+    return wrapped
+
+
+def _compose_map_trace(jac_block, upstream):
+    """Compose a local block Jacobian with an optional downstream trace."""
+    if upstream is None:
+        rows = torch.arange(
+            jac_block.shape[0], device=jac_block.device, dtype=torch.int64
+        )
+        return (rows, None, jac_block)
+
+    rows, positions, upstream_values = upstream
+    if positions is not None:
+        jac_block = jac_block[positions]
+    return (rows, positions, upstream_values @ jac_block)
+
+
+def _compose_index_trace(index, upstream, output):
+    """Propagate a block trace through an observation-wise index operation."""
+    if upstream is None:
+        rows = torch.arange(
+            output.shape[0], device=output.device, dtype=torch.int64
+        )
+        if output.ndim == 1:
+            values = torch.ones(
+                (output.shape[0], 1, 1),
+                device=output.device,
+                dtype=output.dtype,
+            )
+        else:
+            block_dim = output.shape[-1]
+            eye = torch.eye(block_dim, device=output.device, dtype=output.dtype)
+            values = eye.unsqueeze(0).repeat(output.shape[0], 1, 1)
+        return (rows, index, values)
+
+    rows, positions, values = upstream
+    if positions is not None:
+        index = index[positions]
+    return (rows, index, values)
+
+
+def _parameter_index(tensor, params):
+    """Resolve a traced leaf to its requested parameter using object identity."""
+    for index, param in enumerate(params):
+        if tensor is param:
+            return index
+    return None
+
+
+def _append_functional_trace(tensor, trace, params, contributions):
+    """Continue through a traced node or record a parameter contribution."""
+    if isinstance(tensor, torch.Tensor) and hasattr(tensor, "optrace"):
+        _functional_backward(tensor, trace, params, contributions)
+        return
+
+    index = _parameter_index(tensor, params)
+    if index is not None:
+        contributions[index].append(trace)
+
+
+def _functional_backward(output, upstream, params, contributions):
+    """Compile-safe sparse-Jacobian traversal without Tensor attribute mutation.
+
+    Dynamo unrolls the Python control flow over the immutable ``optrace`` tree.
+    Runtime Jacobian state is represented only by tensor tuples, rather than by
+    adding and deleting ``jactrace`` attributes on Tensor/FakeTensor objects.
+    """
+    output_trace = output.optrace
+    op = output_trace[0]
+
+    if op == "map":
+        func = output_trace[1]
+        trace_args = output_trace[2]
+        #   This design avoids retaining the intermediate indexed TrackingTensor in the immutable trace tree. Under torch.compile, the
+        #   reconstructed cameras[camera_indices] is captured as an ordinary graph operation, so Inductor may fuse its indexed loads with
+        #   the derivative computation.
+        args = tuple(_materialize_trace_arg(arg) for arg in trace_args)
+        argnums = tuple(
+            index
+            for index, arg in enumerate(args)
+            if hasattr(arg, "optrace") or isinstance(arg, torch.nn.Parameter)
+        )
+        if len(argnums) == 0:
+            return
+
+        jac_blocks = torch.vmap(
+            jacrev(_restore_lie_inputs(func, args), argnums=argnums),
+            in_dims=_vmap_in_dims(args),
+        )(*args)
+
+        for jac_block, arg_index in zip(jac_blocks, argnums):
+            assert jac_block.ndim == 3, "`func` is not properly vectorized in `torch.vmap`"
+            trace = _compose_map_trace(jac_block, upstream)
+            trace_arg = trace_args[arg_index]
+            if _is_indexed_trace_arg(trace_arg):
+                _, parent, index = trace_arg
+                trace = _compose_index_trace(index, trace, args[arg_index])
+                _append_functional_trace(parent, trace, params, contributions)
+            else:
+                _append_functional_trace(
+                    args[arg_index], trace, params, contributions
+                )
+        return
+
+    if op == "index":
+        index, parent = output_trace[1], output_trace[2]
+        trace = _compose_index_trace(index, upstream, output)
+        _append_functional_trace(parent, trace, params, contributions)
+        return
+
+    if op == "cat":
+        dim, tracked = output_trace[1], output_trace[2]
+        if dim != 0:
+            raise NotImplementedError("Only torch.cat(..., dim=0) is supported")
+
+        if upstream is None:
+            rows = torch.arange(
+                output.shape[0], device=output.device, dtype=torch.int64
+            )
+            positions = rows
+            if output.ndim == 1:
+                values = torch.ones(
+                    (output.shape[0], 1, 1),
+                    device=output.device,
+                    dtype=output.dtype,
+                )
+            else:
+                block_dim = output.shape[-1]
+                eye = torch.eye(
+                    block_dim, device=output.device, dtype=output.dtype
+                )
+                values = eye.unsqueeze(0).repeat(output.shape[0], 1, 1)
+        else:
+            rows, positions, values = upstream
+            if positions is None:
+                positions = torch.arange(
+                    values.shape[0], device=values.device, dtype=torch.int64
+                )
+
+        for start, end, arg in tracked:
+            mask = (positions >= start) & (positions < end)
+            trace = (
+                rows[mask],
+                positions[mask] - start,
+                values[mask],
+            )
+            _append_functional_trace(arg, trace, params, contributions)
+        return
+
+    raise NotImplementedError(f"Unsupported trace operation: {op}")
+
+
+def jacobian_components(output, params):
+    """Return compile-safe BSR component tensors for each requested parameter.
+
+    The result contains one or more components per parameter. Multiple
+    components arise when distinct compute-graph branches contribute to the
+    same parameter and are combined during eager materialization.
+    """
+    assert output.optrace[0] in (
+        "map",
+        "index",
+        "cat",
+    ), "Unsupported last operation in compute graph"
+    contributions = [[] for _ in params]
+    _functional_backward(output, None, params, contributions)
+
+    result = []
+    for param, traces in zip(params, contributions):
+        param_components = []
+        for rows, columns, values in traces:
+            if columns is None:
+                columns = torch.arange(
+                    values.shape[0], device=values.device, dtype=torch.int64
+                )
+            values = trim_parameter_jacobian_values(
+                param, values, block_indices=columns
+            )
+            crow = _row_indices_to_crow(
+                rows,
+                output.shape[0],
+                dtype=columns.dtype,
+            )
+            param_components.append(
+                BSRJacobianData(
+                    crow,
+                    columns,
+                    values,
+                    (
+                        output.shape[0] * values.shape[-2],
+                        param.shape[0] * values.shape[-1],
+                    ),
+                )
+            )
+        result.append(tuple(param_components))
+    return tuple(result)
+
+
+def materialize_jacobian_components(components):
+    """Create sparse BSR tensors while preserving parameter alignment.
+
+    An empty component group represents a parameter that does not contribute
+    to the output and is materialized as ``None``.
+    """
+    result = []
+    for param_components in components:
+        if len(param_components) == 0:
+            result.append(None)
+            continue
+        sparse_components = [
+            torch.sparse_bsr_tensor(
+                component.crow_indices,
+                component.col_indices,
+                component.values,
+                size=component.size,
+            )
+            for component in param_components
+        ]
+        combined = sparse_components[0]
+        for sparse_component in sparse_components[1:]:
+            combined = combined + sparse_component
+        result.append(combined)
+    return result
+
 def backward(output_, is_root=False):
     # For non-root recursion, no incoming trace means no contribution to
     # propagate. This avoids re-initializing identity traces on revisits.
     if (not is_root) and (not hasattr(output_, 'jactrace')):
         return
 
-    if output_.optrace[id(output_)][0] == 'map':
-        func = output_.optrace[id(output_)][1]
-        args = output_.optrace[id(output_)][2]
+    output_trace = output_.optrace
+    if output_trace[0] == 'map':
+        func = output_trace[1]
+        args = tuple(_materialize_trace_arg(arg) for arg in output_trace[2])
         argnums = tuple(idx for idx, arg in enumerate(args) if hasattr(arg, 'optrace') or isinstance(arg, torch.nn.Parameter))
         if len(argnums) == 0:
             warnings.warn("No upstream parameters to compute jacobian", stacklevel=2)
@@ -237,9 +510,9 @@ def backward(output_, is_root=False):
             delattr(output_, 'jactrace')
 
 
-    elif output_.optrace[id(output_)][0] == 'index':
-        index = output_.optrace[id(output_)][1]
-        arg = output_.optrace[id(output_)][2]
+    elif output_trace[0] == 'index':
+        index = output_trace[1]
+        arg = output_trace[2]
 
         # If the last operation is indexing, there is no downstream map op to
         # populate Jacobian values. In this case, the Jacobian block values are
@@ -274,9 +547,9 @@ def backward(output_, is_root=False):
         if hasattr(output_, 'jactrace'):
             delattr(output_, 'jactrace')
 
-    elif output_.optrace[id(output_)][0] == 'cat':
-        dim = output_.optrace[id(output_)][1]
-        tracked = output_.optrace[id(output_)][2]  # ((start, end, arg), ...)
+    elif output_trace[0] == 'cat':
+        dim = output_trace[1]
+        tracked = output_trace[2]  # ((start, end, arg), ...)
         if dim != 0:
             raise NotImplementedError("Only torch.cat(..., dim=0) is supported")
 
@@ -314,7 +587,7 @@ def backward(output_, is_root=False):
 
 
 def jacobian(output, params):
-    assert output.optrace[id(output)][0] in ('map', 'index', 'cat'), "Unsupported last operation in compute graph"
+    assert output.optrace[0] in ('map', 'index', 'cat'), "Unsupported last operation in compute graph"
     _clear_jactrace(output, params)
     try:
         backward(output, is_root=True)

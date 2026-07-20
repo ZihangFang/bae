@@ -25,8 +25,13 @@ from ba_example import Residual, project, least_square_error  # noqa: E402
 from pypose.autograd.function import psjac
 import bae.autograd.graph as autograd_graph  # noqa: E402
 from bae.optim import LM  # noqa: E402
+from bae.utils.pypose_ambient_grad import (  # noqa: E402
+    install_pypose_ambient_grad_monkeypatch,
+)
 from bae.utils.pysolvers import PCG  # noqa: E402
 from datapipes.bal_io import read_bal_data  # noqa: E402
+
+install_pypose_ambient_grad_monkeypatch()
 
 
 pytestmark = [
@@ -41,6 +46,63 @@ _BAL_SAMPLES: list[tuple[str, str]] = [
     ("dubrovnik", "problem-356-226730-pre"),
     ("ladybug", "problem-1723-156502-pre"),
 ]
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_compiled_indexed_residual_preserves_sparse_jacobian(device: str):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA not available")
+
+    torch.manual_seed(0)
+    dtype = torch.float64
+    num_cameras, num_points, num_observations = 4, 7, 12
+
+    cameras = torch.zeros(num_cameras, 10, device=device, dtype=dtype)
+    cameras[:, 6] = 1.0
+    cameras[:, 7] = 500.0
+    points = torch.randn(num_points, 3, device=device, dtype=dtype)
+    points[:, 2].abs_().add_(2.0)
+    observations = torch.randn(num_observations, 2, device=device, dtype=dtype)
+    camera_indices = torch.randint(num_cameras, (num_observations,), device=device)
+    point_indices = torch.randint(num_points, (num_observations,), device=device)
+
+    eager_model = Residual(cameras.clone(), points.clone()).to(device)
+    expected = eager_model(observations, camera_indices, point_indices)
+    expected_jacobians = autograd_graph.jacobian(
+        expected, [eager_model.pose, eager_model.points]
+    )
+
+    compiled_model = Residual(cameras.clone(), points.clone()).to(device)
+
+    def residual_and_jacobian_components(observations, camera_indices, point_indices):
+        residual = compiled_model(observations, camera_indices, point_indices)
+        components = autograd_graph.jacobian_components(
+            residual, (compiled_model.pose, compiled_model.points)
+        )
+        return residual, components
+
+    backend = "inductor" if device == "cuda" else "eager"
+    compiled = torch.compile(
+        residual_and_jacobian_components,
+        backend=backend,
+        fullgraph=True,
+    )
+    actual, components = compiled(observations, camera_indices, point_indices)
+    actual_jacobians = autograd_graph.materialize_jacobian_components(components)
+
+    for component_group, actual_jacobian in zip(components, actual_jacobians):
+        assert len(component_group) == 1
+        assert component_group[0].values.data_ptr() == actual_jacobian.values().data_ptr()
+
+    torch.testing.assert_close(actual.tensor(), expected.tensor())
+    for actual_jacobian, expected_jacobian in zip(
+        actual_jacobians, expected_jacobians
+    ):
+        torch.testing.assert_close(
+            actual_jacobian.to_dense(), expected_jacobian.to_dense()
+        )
+
+
 _BAL_TEST_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 _BAL_EXPECTED_FINAL_PER_PIXEL_ERRORS: dict[tuple[str, str], float] = {
     ("trafalgar", "problem-257-65132-pre"): 0.8588579966685325,

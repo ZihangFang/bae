@@ -10,6 +10,7 @@ os.environ.setdefault("BAE_USE_PYPOSE_AMBIENT_GRAD", "1")
 
 from pypose.autograd.function import psjac
 from bae.autograd.graph import jacobian as sparse_jacobian
+from bae.autograd.graph import jacobian_components, materialize_jacobian_components
 from bae.utils.retraction_jacobian import se3_retraction_jacobian
 from bae.utils.pypose_ambient_grad import (
     install_pypose_ambient_grad_monkeypatch,
@@ -93,6 +94,8 @@ def test_sparse_jacobian_matches_torch_jacrev(device: str):
 
     model = ToyResidual(A0, B0)
     out = model(obs, idx_a, idx_b, sel)
+    assert isinstance(out.optrace, tuple)
+    assert out.optrace[0] == "map"
 
     J_sparse = sparse_jacobian(out, [model.A, model.B])
     assert len(J_sparse) == 2
@@ -111,6 +114,41 @@ def test_sparse_jacobian_matches_torch_jacrev(device: str):
 
     assert torch.equal(J_sparse[0].col_indices(), idx_a[sel])
     assert torch.equal(J_sparse[1].col_indices(), idx_b[sel])
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_materialized_components_preserve_unused_parameter_position(device: str):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA not available")
+
+    torch.manual_seed(0)
+    dtype = torch.float64
+    dim = 3
+
+    model = ToyResidual(
+        torch.randn(4, dim, device=device, dtype=dtype),
+        torch.randn(5, dim, device=device, dtype=dtype),
+    )
+    unused = pp.Parameter(torch.randn(6, dim, device=device, dtype=dtype), sjac=True)
+    obs = torch.randn(7, dim, device=device, dtype=dtype)
+    idx_a = torch.randint(4, (7,), device=device, dtype=torch.int32)
+    idx_b = torch.randint(5, (7,), device=device, dtype=torch.int32)
+    sel = torch.tensor([0, 2, 5, 6], device=device, dtype=torch.int32)
+
+    def compiled_components(obs, idx_a, idx_b, sel):
+        residual = model(obs, idx_a, idx_b, sel)
+        return jacobian_components(residual, (model.A, unused, model.B))
+
+    components = torch.compile(
+        compiled_components, backend="eager", fullgraph=True
+    )(obs, idx_a, idx_b, sel)
+    jacobians = materialize_jacobian_components(components)
+
+    assert len(components) == 3
+    assert len(jacobians) == 3
+    assert jacobians[0] is not None
+    assert jacobians[1] is None
+    assert jacobians[2] is not None
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
@@ -296,6 +334,17 @@ def test_sparse_jacobian_cat_dim0_matches_torch_jacrev(device: str):
     assert JB_sparse.crow_indices()[-1].item() == n_b
     assert torch.equal(JB_sparse.col_indices(), idx_b)
 
+    def compiled_components(*args):
+        residual = model(*args)
+        return jacobian_components(residual, (model.A, model.B))
+
+    components = torch.compile(
+        compiled_components, backend="eager", fullgraph=True
+    )(obs_a, obs_b, idx_a, idx_b, mul_a, mul_b)
+    compiled_jacobians = materialize_jacobian_components(components)
+    torch.testing.assert_close(compiled_jacobians[0].to_dense(), JA_sparse.to_dense())
+    torch.testing.assert_close(compiled_jacobians[1].to_dense(), JB_sparse.to_dense())
+
 
 class CatSubResidual(nn.Module):
     def __init__(self, A: torch.Tensor, B: torch.Tensor):
@@ -403,6 +452,17 @@ def test_sparse_jacobian_index_after_cat_matches_torch_jacrev(device: str):
     torch.testing.assert_close(JA_sparse.to_dense(), _flatten_jac(JA), rtol=1e-10, atol=1e-10)
     torch.testing.assert_close(JB_sparse.to_dense(), _flatten_jac(JB), rtol=1e-10, atol=1e-10)
 
+    def compiled_components(obs, index):
+        residual = model(obs, index)
+        return jacobian_components(residual, (model.A, model.B))
+
+    components = torch.compile(
+        compiled_components, backend="eager", fullgraph=True
+    )(obs, idx)
+    compiled_jacobians = materialize_jacobian_components(components)
+    torch.testing.assert_close(compiled_jacobians[0].to_dense(), JA_sparse.to_dense())
+    torch.testing.assert_close(compiled_jacobians[1].to_dense(), JB_sparse.to_dense())
+
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_pp_parameter_lie_tensor_index_and_cat_preserve_ltype(device: str):
@@ -424,7 +484,8 @@ def test_pp_parameter_lie_tensor_index_and_cat_preserve_ltype(device: str):
     assert isinstance(node_a, pp.LieTensor)
     assert type(node_a.ltype) is type(nodes.ltype)
     assert hasattr(node_a, "optrace")
-    assert node_a.optrace[id(node_a)][0] == "index"
+    assert isinstance(node_a.optrace, tuple)
+    assert node_a.optrace[0] == "index"
 
     assert node_a.tensor().shape == (idx_a.numel(), 7)
     assert node_a.translation().shape == (idx_a.numel(), 3)
@@ -435,7 +496,8 @@ def test_pp_parameter_lie_tensor_index_and_cat_preserve_ltype(device: str):
     assert isinstance(cat, pp.LieTensor)
     assert type(cat.ltype) is type(nodes.ltype)
     assert hasattr(cat, "optrace")
-    assert cat.optrace[id(cat)][0] == "cat"
+    assert isinstance(cat.optrace, tuple)
+    assert cat.optrace[0] == "cat"
     assert cat.translation().shape == (idx_a.numel() + idx_b.numel(), 3)
 
 
@@ -471,3 +533,19 @@ def test_sparse_jacobian_matches_lie_tensor_pgo_residual(device: str):
     else:
         J_ref = _flatten_jac(J_dense[..., :6])
     torch.testing.assert_close(J_sparse.to_dense(), J_ref, rtol=1e-10, atol=1e-10)
+
+    def compiled_components(poses, first_indices, second_indices):
+        residual = _relative_se3_residual(
+            poses,
+            model[first_indices],
+            model[second_indices],
+        )
+        return jacobian_components(residual, (model,))
+
+    components = torch.compile(
+        compiled_components, backend="eager", fullgraph=True
+    )(poses, idx1, idx2)
+    (compiled_jacobian,) = materialize_jacobian_components(components)
+    torch.testing.assert_close(
+        compiled_jacobian.to_dense(), J_sparse.to_dense(), rtol=1e-10, atol=1e-10
+    )

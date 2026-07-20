@@ -71,20 +71,29 @@ class LM(ppLM):
         return self.loss
 
     def update_parameter(self, params, step):
-        numels = []
-        for param in params:
-            if param.requires_grad:
-                numels.append(torch.Size(parameter_update_shape(param)).numel())
-        steps = step.split(numels)
-        for (param, d) in zip(params, steps):
-            if param.requires_grad:
-                step_view = d.view(parameter_update_shape(param))
-                if getattr(param, 'trim_SE3_grad', False):
-                    param[..., :7] = pp.SE3(param[..., :7]).add_(pp.se3(step_view[..., :6]))
-                    if param.shape[-1] > 7:
-                        param[:, 7:] += step_view[..., 6:]
-                else:
-                    param.add_(step_view)
+        with torch.no_grad():
+            numels = []
+            for param in params:
+                if param.requires_grad:
+                    numels.append(torch.Size(parameter_update_shape(param)).numel())
+            steps = step.split(numels)
+            for (param, d) in zip(params, steps):
+                if param.requires_grad:
+                    step_view = d.view(parameter_update_shape(param))
+                    if getattr(param, 'trim_SE3_grad', False):
+                        # Update the base Tensor instead of assigning through a
+                        # TrackingTensor/LieTensor view. Mixed-subclass
+                        # __setitem__ dispatch is not traceable by Dynamo.
+                        param_tensor = torch.Tensor(param)
+                        updated_pose = (
+                            pp.se3(step_view[..., :6]).Exp()
+                            * pp.SE3(param_tensor[..., :7])
+                        )
+                        param_tensor[..., :7].copy_(updated_pose.tensor())
+                        if param.shape[-1] > 7:
+                            param_tensor[..., 7:].add_(step_view[..., 6:])
+                    else:
+                        param.add_(step_view)
 
 
 class Schur(LM):
