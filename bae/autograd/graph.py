@@ -8,6 +8,26 @@ from torch.func import jacrev
 
 from ..sparse import warp_wrappers as _warp_wrappers  # noqa: F401
 from ..utils.parameter import trim_parameter_jacobian_values
+from .function import _INDEXED_TRACE_TAG
+
+
+def _get_optrace(tensor: torch.Tensor):
+    """Return a trace edge, accepting the pre-Dynamo dictionary format too."""
+    trace = tensor.optrace
+    if isinstance(trace, dict):
+        return trace[id(tensor)]
+    return trace
+
+
+def _is_indexed_trace_arg(arg) -> bool:
+    return isinstance(arg, tuple) and len(arg) == 3 and arg[0] == _INDEXED_TRACE_TAG
+
+
+def _materialize_trace_arg(arg):
+    if _is_indexed_trace_arg(arg):
+        _, tensor, index = arg
+        return tensor[index]
+    return arg
 
 
 def _crow_to_row_indices(crow_indices: torch.Tensor) -> torch.Tensor:
@@ -124,19 +144,24 @@ def _clear_jactrace(output, params):
         if hasattr(tensor, 'jactrace'):
             delattr(tensor, 'jactrace')
 
-        if not hasattr(tensor, 'optrace') or id(tensor) not in tensor.optrace:
+        if not hasattr(tensor, 'optrace'):
             continue
 
-        op = tensor.optrace[id(tensor)][0]
+        trace = _get_optrace(tensor)
+        op = trace[0]
         if op == 'map':
-            args = tensor.optrace[id(tensor)][2]
-            stack.extend(arg for arg in args if isinstance(arg, torch.Tensor))
+            args = trace[2]
+            for arg in args:
+                if _is_indexed_trace_arg(arg):
+                    stack.append(arg[1])
+                elif isinstance(arg, torch.Tensor):
+                    stack.append(arg)
         elif op == 'index':
-            arg = tensor.optrace[id(tensor)][2]
+            arg = trace[2]
             if isinstance(arg, torch.Tensor):
                 stack.append(arg)
         elif op == 'cat':
-            tracked = tensor.optrace[id(tensor)][2]  # ((start, end, arg), ...)
+            tracked = trace[2]  # ((start, end, arg), ...)
             stack.extend(item[2] for item in tracked if isinstance(item[2], torch.Tensor))
 
 
@@ -184,9 +209,10 @@ def backward(output_, is_root=False):
     if (not is_root) and (not hasattr(output_, 'jactrace')):
         return
 
-    if output_.optrace[id(output_)][0] == 'map':
-        func = output_.optrace[id(output_)][1]
-        args = output_.optrace[id(output_)][2]
+    output_trace = _get_optrace(output_)
+    if output_trace[0] == 'map':
+        func = output_trace[1]
+        args = tuple(_materialize_trace_arg(arg) for arg in output_trace[2])
         argnums = tuple(idx for idx, arg in enumerate(args) if hasattr(arg, 'optrace') or isinstance(arg, torch.nn.Parameter))
         if len(argnums) == 0:
             warnings.warn("No upstream parameters to compute jacobian", stacklevel=2)
@@ -237,9 +263,9 @@ def backward(output_, is_root=False):
             delattr(output_, 'jactrace')
 
 
-    elif output_.optrace[id(output_)][0] == 'index':
-        index = output_.optrace[id(output_)][1]
-        arg = output_.optrace[id(output_)][2]
+    elif output_trace[0] == 'index':
+        index = output_trace[1]
+        arg = output_trace[2]
 
         # If the last operation is indexing, there is no downstream map op to
         # populate Jacobian values. In this case, the Jacobian block values are
@@ -274,9 +300,9 @@ def backward(output_, is_root=False):
         if hasattr(output_, 'jactrace'):
             delattr(output_, 'jactrace')
 
-    elif output_.optrace[id(output_)][0] == 'cat':
-        dim = output_.optrace[id(output_)][1]
-        tracked = output_.optrace[id(output_)][2]  # ((start, end, arg), ...)
+    elif output_trace[0] == 'cat':
+        dim = output_trace[1]
+        tracked = output_trace[2]  # ((start, end, arg), ...)
         if dim != 0:
             raise NotImplementedError("Only torch.cat(..., dim=0) is supported")
 
@@ -314,7 +340,7 @@ def backward(output_, is_root=False):
 
 
 def jacobian(output, params):
-    assert output.optrace[id(output)][0] in ('map', 'index', 'cat'), "Unsupported last operation in compute graph"
+    assert _get_optrace(output)[0] in ('map', 'index', 'cat'), "Unsupported last operation in compute graph"
     _clear_jactrace(output, params)
     try:
         backward(output, is_root=True)

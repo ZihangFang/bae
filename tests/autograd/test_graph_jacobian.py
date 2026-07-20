@@ -424,7 +424,7 @@ def test_pp_parameter_lie_tensor_index_and_cat_preserve_ltype(device: str):
     assert isinstance(node_a, pp.LieTensor)
     assert type(node_a.ltype) is type(nodes.ltype)
     assert hasattr(node_a, "optrace")
-    assert node_a.optrace[id(node_a)][0] == "index"
+    assert node_a.optrace[0] == "index"
 
     assert node_a.tensor().shape == (idx_a.numel(), 7)
     assert node_a.translation().shape == (idx_a.numel(), 3)
@@ -435,7 +435,7 @@ def test_pp_parameter_lie_tensor_index_and_cat_preserve_ltype(device: str):
     assert isinstance(cat, pp.LieTensor)
     assert type(cat.ltype) is type(nodes.ltype)
     assert hasattr(cat, "optrace")
-    assert cat.optrace[id(cat)][0] == "cat"
+    assert cat.optrace[0] == "cat"
     assert cat.translation().shape == (idx_a.numel() + idx_b.numel(), 3)
 
 

@@ -133,6 +133,35 @@ python -m pip install git+https://github.com/pypose/bae.git
    python -m pip install --no-build-isolation -v -e .  # following https://github.com/pytorch/pytorch
    ```
 
+### `torch.compile` with PyPose
+
+Enable the `LieTensor` TorchDynamo compatibility shim before importing either
+`pypose` or `bae`:
+
+```bash
+export BAE_USE_PYPOSE_TORCH_COMPILE=1
+```
+
+The existing ambient-gradient implementation automatically enables the same
+shim, so `BAE_USE_PYPOSE_AMBIENT_GRAD=1` is sufficient when ambient gradients
+are required. The shim can also be installed explicitly before compiling a
+model or residual function:
+
+```python
+import torch
+
+from bae.utils.pypose_compile import install_pypose_torch_compile_monkeypatch
+
+install_pypose_torch_compile_monkeypatch()
+compiled_model = torch.compile(model, fullgraph=True)
+```
+
+With `fullgraph=True`, indexed `sjac=True` parameters retain their sparse
+Jacobian dependency trace without forcing the gathered camera and point blocks
+to escape the compiled graph. Inductor can therefore load permuted rows directly
+inside the fused residual kernels instead of allocating standalone indexed
+camera and point tensors.
+
 ## Agent Skills
 
 This repo includes skills in [.agent/skills](.agent/skills):

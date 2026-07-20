@@ -83,3 +83,16 @@ def test_pypose_se3_inv_monkeypatch_produces_ambient_gradient():
     jac_fd = _fd_jacobian(lambda x: pp.SE3(x).Inv().tensor(), pose)
 
     torch.testing.assert_close(jac, jac_fd, rtol=1e-7, atol=1e-7)
+
+
+def test_pypose_se3_exp_monkeypatch_produces_ambient_gradient():
+    install_pypose_ambient_grad_monkeypatch()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dtype = torch.float64
+
+    algebra = 0.2 * torch.randn(1, 6, device=device, dtype=dtype)
+
+    jac = torch.func.jacrev(lambda x: pp.se3(x).Exp().tensor())(algebra)
+    jac_fd = _fd_jacobian(lambda x: pp.se3(x).Exp().tensor(), algebra)
+
+    torch.testing.assert_close(jac, jac_fd, rtol=1e-7, atol=1e-7)
