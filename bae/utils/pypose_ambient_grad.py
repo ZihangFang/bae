@@ -98,13 +98,16 @@ def _so3_exp_forward(input: torch.Tensor) -> torch.Tensor:
     theta2 = theta.square()
     theta4 = theta2.square()
     nonzero = theta > torch.finfo(theta.dtype).eps
-    imaginary_factor = nonzero * torch.nan_to_num(torch.sin(0.5 * theta) / theta)
-    imaginary_factor = imaginary_factor + (~nonzero) * (
-        0.5 - theta2 / 48.0 + theta4 / 3840.0
+    safe_theta = torch.where(nonzero, theta, torch.ones_like(theta))
+    imaginary_factor = torch.where(
+        nonzero,
+        torch.sin(0.5 * safe_theta) / safe_theta,
+        0.5 - theta2 / 48.0 + theta4 / 3840.0,
     )
-    real_factor = nonzero * torch.cos(0.5 * theta)
-    real_factor = real_factor + (~nonzero) * (
-        1.0 - theta2 / 8.0 + theta4 / 384.0
+    real_factor = torch.where(
+        nonzero,
+        torch.cos(0.5 * theta),
+        1.0 - theta2 / 8.0 + theta4 / 384.0,
     )
     return torch.cat((input * imaginary_factor, real_factor), dim=-1)
 
@@ -129,12 +132,18 @@ def _so3_Jl(input: torch.Tensor) -> torch.Tensor:
     identity = torch.eye(3, device=input.device, dtype=input.dtype)
     identity = identity.expand(input.shape[:-1] + (3, 3))
     nonzero = theta > torch.finfo(theta.dtype).eps
-    coefficient1 = nonzero * torch.nan_to_num((1.0 - theta.cos()) / theta2)
-    coefficient1 = coefficient1 + (~nonzero) * (0.5 - theta2 / 24.0)
-    coefficient2 = nonzero * torch.nan_to_num(
-        (theta - theta.sin()) / (theta * theta2)
+    safe_theta = torch.where(nonzero, theta, torch.ones_like(theta))
+    safe_theta2 = safe_theta.square()
+    coefficient1 = torch.where(
+        nonzero,
+        (1.0 - safe_theta.cos()) / safe_theta2,
+        0.5 - theta2 / 24.0,
     )
-    coefficient2 = coefficient2 + (~nonzero) * (1.0 / 6.0 - theta2 / 120.0)
+    coefficient2 = torch.where(
+        nonzero,
+        (safe_theta - safe_theta.sin()) / (safe_theta * safe_theta2),
+        1.0 / 6.0 - theta2 / 120.0,
+    )
     return identity + coefficient1 * skew + coefficient2 * (skew @ skew)
 
 
@@ -144,11 +153,17 @@ def _so3_Jl_inv(input: torch.Tensor) -> torch.Tensor:
     identity = torch.eye(3, device=input.device, dtype=input.dtype)
     identity = identity.expand(input.shape[:-1] + (3, 3))
     nonzero = theta > torch.finfo(theta.dtype).eps
-    coefficient = nonzero * torch.nan_to_num(
-        (1.0 - theta * (0.5 * theta).cos() / (2.0 * (0.5 * theta).sin()))
-        / theta.square()
+    safe_theta = torch.where(nonzero, theta, torch.ones_like(theta))
+    half_safe_theta = 0.5 * safe_theta
+    coefficient = torch.where(
+        nonzero,
+        (
+            1.0
+            - half_safe_theta * half_safe_theta.cos() / half_safe_theta.sin()
+        )
+        / safe_theta.square(),
+        torch.full_like(theta, 1.0 / 12.0),
     )
-    coefficient = coefficient + (~nonzero) * (1.0 / 12.0)
     return identity - 0.5 * skew + coefficient * (skew @ skew)
 
 

@@ -1,11 +1,48 @@
 from __future__ import annotations
 
 import pypose as pp
+import pytest
 import torch
 
-from bae.utils.pypose_ambient_grad import install_pypose_ambient_grad_monkeypatch
+from bae.utils.pypose_ambient_grad import (
+    _so3_exp_forward,
+    _so3_Jl,
+    _so3_Jl_inv,
+    install_pypose_ambient_grad_monkeypatch,
+)
 from bae.utils.pypose_compile import install_pypose_torch_compile_monkeypatch
 from bae.optim.optimizer import LM
+
+
+@torch.no_grad()
+def _zero_and_small_angles(dtype: torch.dtype) -> torch.Tensor:
+    inputs = torch.zeros(2, 3, dtype=dtype)
+    inputs[1, 0] = torch.finfo(dtype).eps / 2.0
+    return inputs
+
+
+@pytest.mark.parametrize("function", (_so3_exp_forward, _so3_Jl, _so3_Jl_inv))
+def test_so3_small_angle_forward_and_gradients_are_finite(function):
+    def weighted_output(input):
+        output = function(input)
+        weights = torch.arange(
+            1, output.numel() + 1, device=output.device, dtype=output.dtype
+        ).reshape(output.shape)
+        return output, (output * weights).sum()
+
+    eager_input = _zero_and_small_angles(torch.float64).requires_grad_()
+    eager_output, eager_loss = weighted_output(eager_input)
+    (eager_gradient,) = torch.autograd.grad(eager_loss, eager_input)
+
+    compiled = torch.compile(weighted_output, backend="eager", fullgraph=True)
+    compiled_input = eager_input.detach().clone().requires_grad_()
+    compiled_output, compiled_loss = compiled(compiled_input)
+    (compiled_gradient,) = torch.autograd.grad(compiled_loss, compiled_input)
+
+    assert torch.isfinite(eager_output).all()
+    assert torch.isfinite(eager_gradient).all()
+    torch.testing.assert_close(compiled_output, eager_output)
+    torch.testing.assert_close(compiled_gradient, eager_gradient)
 
 
 def test_lietensor_tensor_alias_is_fullgraph_traceable_and_differentiable():
