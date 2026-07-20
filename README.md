@@ -84,7 +84,6 @@
 ### Future Plan
 - [ ] Reduce runtime overhead using CUDA graph (WIP in dynamo branch: compile fwd & backward with `torch.compile()` reducing latency from 10ms to 2.2ms)
 - [ ] Distributed Tensor (DTensor) and FSDP support for multi-GPU and distributed optimization
-- [ ] An new backend for [distributed solver](https://github.com/NVIDIA/AMGX)
 - [x] Schur complement (added in [PR #35](https://github.com/pypose/bae/pull/35))
 - [ ] Add Apple Silicon GPU support, [PyTorch PR WIP](https://github.com/pytorch/pytorch/pull/177757)
 
