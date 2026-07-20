@@ -117,6 +117,41 @@ def test_sparse_jacobian_matches_torch_jacrev(device: str):
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_materialized_components_preserve_unused_parameter_position(device: str):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA not available")
+
+    torch.manual_seed(0)
+    dtype = torch.float64
+    dim = 3
+
+    model = ToyResidual(
+        torch.randn(4, dim, device=device, dtype=dtype),
+        torch.randn(5, dim, device=device, dtype=dtype),
+    )
+    unused = pp.Parameter(torch.randn(6, dim, device=device, dtype=dtype), sjac=True)
+    obs = torch.randn(7, dim, device=device, dtype=dtype)
+    idx_a = torch.randint(4, (7,), device=device, dtype=torch.int32)
+    idx_b = torch.randint(5, (7,), device=device, dtype=torch.int32)
+    sel = torch.tensor([0, 2, 5, 6], device=device, dtype=torch.int32)
+
+    def compiled_components(obs, idx_a, idx_b, sel):
+        residual = model(obs, idx_a, idx_b, sel)
+        return jacobian_components(residual, (model.A, unused, model.B))
+
+    components = torch.compile(
+        compiled_components, backend="eager", fullgraph=True
+    )(obs, idx_a, idx_b, sel)
+    jacobians = materialize_jacobian_components(components)
+
+    assert len(components) == 3
+    assert len(jacobians) == 3
+    assert jacobians[0] is not None
+    assert jacobians[1] is None
+    assert jacobians[2] is not None
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_sparse_jacobian_last_op_indexing_is_identity(device: str):
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA not available")

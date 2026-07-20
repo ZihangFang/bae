@@ -425,10 +425,15 @@ def jacobian_components(output, params):
 
 
 def materialize_jacobian_components(components):
-    """Create sparse BSR tensors from ``jacobian_components`` output."""
+    """Create sparse BSR tensors while preserving parameter alignment.
+
+    An empty component group represents a parameter that does not contribute
+    to the output and is materialized as ``None``.
+    """
     result = []
     for param_components in components:
         if len(param_components) == 0:
+            result.append(None)
             continue
         sparse_components = [
             torch.sparse_bsr_tensor(
