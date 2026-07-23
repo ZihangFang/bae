@@ -82,7 +82,7 @@
 - **Schur Complement Optimizer**: Solve a Schur-reduce linear system for [optimized memory consumption](https://github.com/pypose/bae/blob/release/doc/memory_performance.md) 
 
 ### Future Plan
-- [x] Reduce runtime overhead using CUDA graph; compile fwd & backward with `torch.compile()` reducing latency from 10ms to 2.2ms
+- [x] Reduce runtime overhead using CUDA graph; compile fwd & backward with `torch.compile()` reducing latency from 10ms to 2.2ms (added in [PR #41](https://github.com/pypose/bae/pull/41))
 - [ ] Reduce kernel launching cost in PCG solver by kernel fusion
 - [ ] Distributed Tensor (DTensor) and FSDP support for multi-GPU and distributed optimization (WIP in `distributed_proto`)
 - [x] Schur complement (added in [PR #35](https://github.com/pypose/bae/pull/35))
