@@ -3,7 +3,7 @@
 </picture>
 
 <p align="center">
-  <a>Accepted to <b>IEEE Transactions on Robotics (T-RO)</b>, 2026</a>
+  <a><b>IEEE Transactions on Robotics (T-RO)</b>, 2026</a>
 </p>
 
 <p align="center">
