@@ -42,6 +42,21 @@ class _RejectingPCG(PCG):
         return super().forward(A, b, x=x, M=M)
 
 
+class _CountingPCG(PCG):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.operator_calls = 0
+        self.owner_local_inner_calls = 0
+
+    def forward(self, A, b, x=None, M=None):
+        if hasattr(A, "scalar_inner"):
+            self.operator_calls += 1
+            self.owner_local_inner_calls += int(
+                getattr(A, "owner_local_inner", False)
+            )
+        return super().forward(A, b, x=x, M=M)
+
+
 @psjac
 def _se3_factor(camera, point, observation):
     return pp.SE3(camera).Act(point) - observation
@@ -123,9 +138,10 @@ def _schur_worker(rank, world_size, init_file, problem, queue):
             ),
         }
         model = _AdditiveBA(cameras, points)
+        solver = _CountingPCG(tol=1e-10, maxiter=100)
         optimizer = Schur(
             model,
-            solver=PCG(tol=1e-10, maxiter=100),
+            solver=solver,
             matrix_free_normal=True,
         )
 
@@ -180,6 +196,8 @@ def _schur_worker(rank, world_size, init_file, problem, queue):
         assert model.cameras.placements == (Shard(0),)
         assert model.points.placements == (Shard(0),)
         assert loss < initial_loss
+        assert solver.operator_calls == 2
+        assert solver.owner_local_inner_calls == 1
 
         from bae.distributed.ops import cached_gather_plan
 
@@ -187,6 +205,8 @@ def _schur_worker(rank, world_size, init_file, problem, queue):
         point_plan = cached_gather_plan(model.points)
         second_loss = optimizer.step(sharded_input)
         assert second_loss <= loss
+        assert solver.operator_calls == 4
+        assert solver.owner_local_inner_calls == 2
         loss = second_loss
         assert cached_gather_plan(model.cameras) is camera_plan
         assert cached_gather_plan(model.points) is point_plan

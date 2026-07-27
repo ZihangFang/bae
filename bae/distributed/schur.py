@@ -115,9 +115,21 @@ class DistributedSchurCameraOperator(_DistributedOperator):
 
 
 class DistributedBlockDiagonalOperator(_DistributedOperator):
-    def __init__(self, blocks: torch.Tensor, process_group=None):
+    def __init__(
+        self,
+        blocks: torch.Tensor,
+        process_group=None,
+        *,
+        owner_local_inner: bool = False,
+    ):
         super().__init__(process_group)
         self.blocks = blocks
+        self.owner_local_inner = owner_local_inner
+
+    def scalar_inner(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        if self.owner_local_inner:
+            return torch.sum(x * y)
+        return super().scalar_inner(x, y)
 
     def __matmul__(self, x_owned: torch.Tensor) -> torch.Tensor:
         return self.matvec(x_owned)

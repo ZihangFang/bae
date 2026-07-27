@@ -368,6 +368,27 @@ class Schur(LM):
                 local_input, local_target
             )
 
+    def _distributed_evaluate_residual(self, local_input, local_target, params):
+        """Re-evaluate only the residual for trust-region acceptance."""
+        from ..distributed.context import DistributedTraceContext
+
+        if not hasattr(self, "_compiled_distributed_residual_only"):
+            def residual_only(local_input, local_target):
+                return self.model(local_input, local_target)[0]
+
+            local_camera = params[0].to_local()
+            backend = "inductor" if local_camera.is_cuda else "eager"
+            self._compiled_distributed_residual_only = torch.compile(
+                residual_only,
+                backend=backend,
+                fullgraph=True,
+            )
+
+        with DistributedTraceContext(params):
+            return self._compiled_distributed_residual_only(
+                local_input, local_target
+            )
+
     @staticmethod
     def _distributed_component_data(residual, components):
         if len(components) != 2:
@@ -588,11 +609,19 @@ class Schur(LM):
                 point_ownership,
             )
             point_rhs = Ip - point_rhs_correction
+            # Point blocks and their vectors are owner-local and independent.
+            # Preserve the configured PCG approximation while keeping its
+            # inner products local; global reductions cannot couple otherwise
+            # independent point owners and only add synchronization latency.
             point_operator = DistributedBlockDiagonalOperator(
-                V_effective, process_group
+                V_effective,
+                process_group,
+                owner_local_inner=True,
             )
             point_preconditioner = DistributedBlockDiagonalOperator(
-                inverse_diagonal_blocks(V_effective), process_group
+                inverse_diagonal_blocks(V_effective),
+                process_group,
+                owner_local_inner=True,
             )
             point_step = self.solver(
                 point_operator,
@@ -605,7 +634,7 @@ class Schur(LM):
             self._distributed_apply_step(camera, camera_step)
             self._distributed_apply_step(point, point_step)
 
-            new_residual, _ = self._distributed_evaluate(
+            new_residual = self._distributed_evaluate_residual(
                 local_input, local_target, (camera, point)
             )
             self.loss = self._distributed_global_sum(
