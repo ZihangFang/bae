@@ -4,6 +4,13 @@ import pypose as pp
 from functools import wraps
 from torch.utils._pytree import tree_map
 
+from .trace import get_trace, has_trace, is_traced_parameter, set_trace
+
+try:
+    from torch.distributed.tensor import DTensor as _DTensor
+except ImportError:
+    _DTensor = ()
+
 WHITELISTED_MAPS = tuple(
     func for func in (
         torch._C.TensorBase.__add__,
@@ -39,8 +46,10 @@ def _iter_tracked_tensors(values):
 
 
 def _attach_index_trace(result, index, tensor):
-    result.optrace = ("index", index, tensor)
-    return result
+    if isinstance(result, TrackingTensor):
+        result.optrace = ("index", index, tensor)
+        return result
+    return set_trace(result, ("index", index, tensor))
 
 
 def _attach_cat_trace(result, tensors, dim):
@@ -49,25 +58,31 @@ def _attach_cat_trace(result, tensors, dim):
     for t in tensors:
         n = t.shape[0]
         if (
-            hasattr(t, "optrace")
+            has_trace(t)
             or isinstance(t, TrackingTensor)
-            or isinstance(t, torch.nn.Parameter)
+            or is_traced_parameter(t)
         ):
             tracked.append((offset, offset + n, t))
         offset += n
-    result.optrace = ("cat", dim, tuple(tracked))
-    return result
+    trace = ("cat", dim, tuple(tracked))
+    if isinstance(result, TrackingTensor):
+        result.optrace = trace
+        return result
+    return set_trace(result, trace)
 
 
 def _attach_map_trace(result, func, args):
     compact_args = tuple(_compact_map_arg(arg) for arg in args)
-    result.optrace = ("map", func, compact_args)
-    return result
+    trace = ("map", func, compact_args)
+    if isinstance(result, TrackingTensor):
+        result.optrace = trace
+        return result
+    return set_trace(result, trace)
 
 
 def _compact_map_arg(arg):
-    if isinstance(arg, TrackingTensor) and hasattr(arg, "optrace"):
-        trace = arg.optrace
+    if isinstance(arg, torch.Tensor) and has_trace(arg):
+        trace = get_trace(arg)
         if trace[0] == "index":
             return (_INDEXED_TRACE_TAG, trace[2], trace[1])
     return arg
@@ -75,7 +90,10 @@ def _compact_map_arg(arg):
 
 def _find_tracking_source(values, cls):
     for value in _iter_tracked_tensors(values):
-        if isinstance(value, cls):
+        distributed_leaf = (
+            isinstance(value, _DTensor) and is_traced_parameter(value)
+        )
+        if isinstance(value, cls) or has_trace(value) or distributed_leaf:
             return value
     return None
 
@@ -122,6 +140,12 @@ def _retain_ltype(result, tracking_source, cls, func):
 class TrackingTensor(torch.Tensor):
     @staticmethod
     def __new__(cls, data, *args, **kwargs):
+        if isinstance(data, _DTensor):
+            from bae.distributed.context import register_pending_parameter
+
+            register_pending_parameter(data)
+            return data
+
         if cls is TrackingTensor and isinstance(data, pp.LieTensor):
             return _TrackingLieTensor(data, *args, **kwargs)
 

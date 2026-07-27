@@ -1,9 +1,11 @@
 from functools import partial
 import torch
+import torch.distributed as dist
 from pypose.optim import LevenbergMarquardt as ppLM
 import pypose as pp
+from torch.utils._pytree import tree_flatten, tree_map
 
-from ..autograd.graph import jacobian
+from ..autograd.graph import jacobian, jacobian_components
 from ..autograd.function import TrackingTensor
 from ..sparse.py_ops import diagonal_op_, inv_op
 from ..sparse.spgemm import CuSparse
@@ -14,6 +16,34 @@ import warp as wp
 from warp import sparse
 from warp.optim import linear
 from bae.sparse.warp_wrappers import format_vec_for_bsr, torchbsr2wp, wp2torchbsr
+
+try:
+    from torch.distributed.tensor import DTensor, Shard
+except ImportError:
+    DTensor = ()
+    Shard = ()
+
+
+def _contains_dtensor(value) -> bool:
+    leaves, _ = tree_flatten(value)
+    return any(isinstance(leaf, DTensor) for leaf in leaves)
+
+
+def _localize_dtensors(value):
+    return tree_map(
+        lambda leaf: leaf.to_local() if isinstance(leaf, DTensor) else leaf,
+        value,
+    )
+
+
+def _damped_blocks(blocks, damping, minimum, maximum):
+    result = blocks.clone()
+    if result.numel():
+        diagonal = torch.diagonal(result, dim1=-2, dim2=-1)
+        diagonal.copy_(
+            diagonal.clamp(min=minimum, max=maximum) * (1.0 + damping)
+        )
+    return result
 
 
 class LM(ppLM):
@@ -99,6 +129,14 @@ class LM(ppLM):
 class Schur(LM):
     @torch.no_grad()
     def step(self, input, target=None, weight=None):
+        parameters = tuple(
+            parameter
+            for group in self.param_groups
+            for parameter in group["params"]
+        )
+        if _contains_dtensor((parameters, input, target)):
+            return self._distributed_step(input, target=target, weight=weight)
+
         for pg in self.param_groups:
             self.reject_count = 0
             weight = self.weight if weight is None else weight
@@ -234,5 +272,371 @@ class Schur(LM):
                     self.loss, self.reject_count = self.last, self.reject_count + 1
                 else:
                     break
+
+        return self.loss
+
+    def _validate_distributed_inputs(self, input, target):
+        if not self.matrix_free_normal:
+            raise ValueError(
+                "DTensor Schur execution requires matrix_free_normal=True."
+            )
+        if not dist.is_initialized():
+            raise RuntimeError(
+                "DTensor Schur execution requires torch.distributed initialization."
+            )
+        if len(self.param_groups) != 1:
+            raise ValueError(
+                "Distributed Schur expects one optimizer group containing the "
+                "camera and point parameters."
+            )
+        params = tuple(self.param_groups[0]["params"])
+        if len(params) != 2 or not all(isinstance(param, DTensor) for param in params):
+            raise ValueError(
+                "Distributed Schur expects exactly two DTensor parameters: "
+                "cameras followed by points."
+            )
+
+        camera, point = params
+        mesh = camera.device_mesh
+        if mesh.ndim != 1:
+            raise ValueError("Distributed Schur requires a one-dimensional mesh.")
+        for name, parameter in (("camera", camera), ("point", point)):
+            if parameter.device_mesh != mesh:
+                raise ValueError(
+                    "Camera and point parameters must use the same DeviceMesh."
+                )
+            if (
+                len(parameter.placements) != 1
+                or not isinstance(parameter.placements[0], Shard)
+                or parameter.placements[0].dim != 0
+            ):
+                raise ValueError(
+                    f"The {name} parameter must use placements=[Shard(0)]."
+                )
+
+        input_leaves, _ = tree_flatten((input, target))
+        sharded_inputs = [
+            leaf for leaf in input_leaves if isinstance(leaf, DTensor)
+        ]
+        if not sharded_inputs:
+            raise ValueError(
+                "Distributed Schur requires row-sharded observation inputs."
+            )
+        local_rows = None
+        for tensor in sharded_inputs:
+            if tensor.device_mesh != mesh:
+                raise ValueError(
+                    "Observation inputs and parameters must use the same DeviceMesh."
+                )
+            if (
+                len(tensor.placements) != 1
+                or not isinstance(tensor.placements[0], Shard)
+                or tensor.placements[0].dim != 0
+            ):
+                raise ValueError(
+                    "Observation-related DTensors must be row-sharded with Shard(0)."
+                )
+            if tensor.ndim:
+                rows = tensor.to_local().shape[0]
+                if local_rows is None:
+                    local_rows = rows
+                elif rows != local_rows:
+                    raise ValueError(
+                        "Observation-related DTensors must share one row partition."
+                    )
+        return params
+
+    def _distributed_evaluate(self, local_input, local_target, params):
+        from ..distributed.context import DistributedTraceContext
+
+        if not hasattr(self, "_compiled_distributed_residual"):
+            def residual_and_components(local_input, local_target):
+                residual = self.model(local_input, local_target)[0]
+                components = jacobian_components(residual, params)
+                return residual, components
+
+            local_camera = params[0].to_local()
+            backend = "inductor" if local_camera.is_cuda else "eager"
+            self._compiled_distributed_residual = torch.compile(
+                residual_and_components,
+                backend=backend,
+                fullgraph=True,
+            )
+
+        with DistributedTraceContext(params):
+            return self._compiled_distributed_residual(
+                local_input, local_target
+            )
+
+    @staticmethod
+    def _distributed_component_data(residual, components):
+        if len(components) != 2:
+            raise RuntimeError(
+                "Distributed Schur requires camera and point Jacobian components."
+            )
+        if any(len(group) != 1 for group in components):
+            raise RuntimeError(
+                "Distributed Schur requires exactly one camera block and one "
+                "point block per observation row."
+            )
+
+        camera, point = components[0][0], components[1][0]
+        observation_count = residual.shape[0]
+        for name, component in (("camera", camera), ("point", point)):
+            row_counts = component.crow_indices[1:] - component.crow_indices[:-1]
+            if (
+                component.values.shape[0] != observation_count
+                or component.col_indices.numel() != observation_count
+                or row_counts.numel() != observation_count
+                or not bool(torch.all(row_counts == 1).item())
+            ):
+                raise RuntimeError(
+                    "Distributed Schur requires one "
+                    f"{name} Jacobian block per observation row."
+                )
+        return (
+            camera.values.contiguous(),
+            camera.col_indices.to(torch.long).contiguous(),
+            point.values.contiguous(),
+            point.col_indices.to(torch.long).contiguous(),
+        )
+
+    @staticmethod
+    def _distributed_global_sum(value, process_group):
+        result = value.clone()
+        if dist.get_world_size(process_group) > 1:
+            dist.all_reduce(
+                result, op=dist.ReduceOp.SUM, group=process_group
+            )
+        return result
+
+    @staticmethod
+    def _distributed_apply_step(parameter, step):
+        from ..distributed.context import parameter_metadata
+
+        local = parameter.to_local()
+        if local.numel() == 0:
+            return
+        metadata = parameter_metadata(parameter)
+        if (
+            getattr(parameter, "trim_SE3_grad", False)
+            or metadata.trim_se3_grad
+        ):
+            updated_pose = (
+                pp.se3(step[..., :6]).Exp()
+                * pp.SE3(local[..., :7])
+            )
+            local[..., :7].copy_(updated_pose.tensor())
+            if local.shape[-1] > 7:
+                local[..., 7:].add_(step[..., 6:])
+        elif metadata.ltype == pp.SE3_type:
+            updated = pp.se3(step).Exp() * pp.SE3(local)
+            local.copy_(updated.tensor())
+        elif metadata.ltype == pp.SO3_type:
+            updated = pp.so3(step).Exp() * pp.SO3(local)
+            local.copy_(updated.tensor())
+        else:
+            local.add_(step.view_as(local))
+
+    @staticmethod
+    def _distributed_update_strategy(pg, strategy, last, loss, denominator):
+        if loss >= last or denominator <= 0:
+            quality = -1.0
+        else:
+            quality = float(((last - loss) / denominator).item())
+
+        pg["radius"] = 1.0 / pg["damping"]
+        if quality > pg["high"]:
+            pg["radius"] = pg["up"] * pg["radius"]
+            pg["down"] = strategy.down
+        elif quality <= pg["low"]:
+            pg["radius"] = pg["radius"] * pg["down"]
+            pg["down"] = pg["down"] * pg["factor"]
+        pg["down"] = max(strategy.min, min(pg["down"], strategy.max))
+        pg["radius"] = max(pg["min"], min(pg["radius"], pg["max"]))
+        pg["damping"] = 1.0 / pg["radius"]
+
+    @torch.no_grad()
+    def _distributed_step(self, input, target=None, weight=None):
+        from ..distributed.context import parameter_metadata
+        from ..distributed.ops import (
+            cached_gather_plan,
+            ghost_gather,
+            owner_reduce_scatter,
+        )
+        from ..distributed.plan import Ownership
+        from ..distributed.schur import (
+            DistributedBlockDiagonalOperator,
+            DistributedSchurCameraOperator,
+            apply_block_matrix,
+            inverse_diagonal_blocks,
+        )
+
+        camera, point = self._validate_distributed_inputs(input, target)
+        if not hasattr(self.solver, "_operator_forward"):
+            raise TypeError(
+                "Distributed Schur currently requires bae.utils.pysolvers.PCG."
+            )
+        local_input = _localize_dtensors(input)
+        local_target = _localize_dtensors(target)
+        pg = self.param_groups[0]
+        process_group = camera.device_mesh.get_group()
+
+        residual, components = self._distributed_evaluate(
+            local_input, local_target, (camera, point)
+        )
+        Jc, camera_ids, Jp, point_ids = self._distributed_component_data(
+            residual, components
+        )
+        residual_blocks = residual.reshape(residual.shape[0], -1)
+
+        camera_ownership = Ownership.from_parameter(
+            parameter_metadata(camera)
+        )
+        point_ownership = Ownership.from_parameter(parameter_metadata(point))
+        camera_plan = cached_gather_plan(camera)
+        point_plan = cached_gather_plan(point)
+
+        U = owner_reduce_scatter(
+            torch.einsum("ori,orj->oij", Jc, Jc),
+            camera_ids,
+            camera_ownership,
+        )
+        V = owner_reduce_scatter(
+            torch.einsum("ori,orj->oij", Jp, Jp),
+            point_ids,
+            point_ownership,
+        )
+        Ic = owner_reduce_scatter(
+            -torch.einsum("ori,or->oi", Jc, residual_blocks),
+            camera_ids,
+            camera_ownership,
+        )
+        Ip = owner_reduce_scatter(
+            -torch.einsum("ori,or->oi", Jp, residual_blocks),
+            point_ids,
+            point_ownership,
+        )
+
+        self.reject_count = 0
+        self.last = self._distributed_global_sum(
+            residual.square().sum(), process_group
+        )
+        self.loss = self.last
+
+        while self.last <= self.loss:
+            U_effective = _damped_blocks(
+                U, pg["damping"], pg["min"], pg["max"]
+            )
+            V_effective = _damped_blocks(
+                V, pg["damping"], pg["min"], pg["max"]
+            )
+            V_inverse = (
+                torch.linalg.inv(V_effective)
+                if V_effective.numel()
+                else V_effective
+            )
+
+            point_scaled = apply_block_matrix(V_inverse, Ip)
+            point_eval = ghost_gather(point_scaled, point_plan)
+            point_obs = point_eval.index_select(
+                0, point_plan.observation_positions
+            )
+            camera_rhs_correction = owner_reduce_scatter(
+                torch.einsum(
+                    "ori,or->oi",
+                    Jc,
+                    torch.einsum("ori,oi->or", Jp, point_obs),
+                ),
+                camera_ids,
+                camera_ownership,
+            )
+            camera_rhs = Ic - camera_rhs_correction
+
+            camera_operator = DistributedSchurCameraOperator(
+                camera_jacobians=Jc,
+                point_jacobians=Jp,
+                camera_global_ids=camera_ids,
+                point_global_ids=point_ids,
+                owned_u_blocks=U_effective,
+                owned_v_inverse_blocks=V_inverse,
+                camera_plan=camera_plan,
+                point_plan=point_plan,
+                camera_ownership=camera_ownership,
+                point_ownership=point_ownership,
+            )
+            camera_preconditioner = DistributedBlockDiagonalOperator(
+                inverse_diagonal_blocks(U_effective), process_group
+            )
+            camera_step = self.solver(
+                camera_operator,
+                camera_rhs,
+                M=camera_preconditioner,
+            )
+
+            camera_eval = ghost_gather(camera_step, camera_plan)
+            camera_obs = camera_eval.index_select(
+                0, camera_plan.observation_positions
+            )
+            point_rhs_correction = owner_reduce_scatter(
+                torch.einsum(
+                    "ori,or->oi",
+                    Jp,
+                    torch.einsum("ori,oi->or", Jc, camera_obs),
+                ),
+                point_ids,
+                point_ownership,
+            )
+            point_rhs = Ip - point_rhs_correction
+            point_operator = DistributedBlockDiagonalOperator(
+                V_effective, process_group
+            )
+            point_preconditioner = DistributedBlockDiagonalOperator(
+                inverse_diagonal_blocks(V_effective), process_group
+            )
+            point_step = self.solver(
+                point_operator,
+                point_rhs,
+                M=point_preconditioner,
+            )
+
+            camera_before = camera.to_local().clone()
+            point_before = point.to_local().clone()
+            self._distributed_apply_step(camera, camera_step)
+            self._distributed_apply_step(point, point_step)
+
+            new_residual, _ = self._distributed_evaluate(
+                local_input, local_target, (camera, point)
+            )
+            self.loss = self._distributed_global_sum(
+                new_residual.square().sum(), process_group
+            )
+
+            point_step_eval = ghost_gather(point_step, point_plan)
+            point_step_obs = point_step_eval.index_select(
+                0, point_plan.observation_positions
+            )
+            linearized_step = torch.einsum(
+                "ori,oi->or", Jc, camera_obs
+            ) + torch.einsum("ori,oi->or", Jp, point_step_obs)
+            denominator = self._distributed_global_sum(
+                -torch.sum(
+                    linearized_step
+                    * (2.0 * residual_blocks + linearized_step)
+                ),
+                process_group,
+            )
+            self._distributed_update_strategy(
+                pg, self.strategy, self.last, self.loss, denominator
+            )
+
+            if self.loss > self.last:
+                camera.to_local().copy_(camera_before)
+                point.to_local().copy_(point_before)
+                self.loss = self.last
+                self.reject_count += 1
+                if self.reject_count <= self.reject:
+                    continue
+            break
 
         return self.loss

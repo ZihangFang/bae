@@ -9,6 +9,7 @@ from torch.func import jacrev
 from ..sparse import warp_wrappers as _warp_wrappers  # noqa: F401
 from ..utils.parameter import trim_parameter_jacobian_values
 from .function import _INDEXED_TRACE_TAG
+from .trace import get_trace, has_trace, is_traced_parameter
 
 
 class BSRJacobianData(NamedTuple):
@@ -34,6 +35,14 @@ def _materialize_trace_arg(arg):
     #  produces an ordinary aten.index; it enables Inductor to choose fusion but does not force it.
     if _is_indexed_trace_arg(arg):
         _, tensor, index = arg
+        try:
+            from torch.distributed.tensor import DTensor
+        except ImportError:
+            DTensor = ()
+        if isinstance(tensor, DTensor):
+            from ..distributed.ops import distributed_index
+
+            return distributed_index(tensor, index)
         return tensor[index]
     return arg
 
@@ -151,10 +160,10 @@ def _clear_jactrace(output, params):
         if hasattr(tensor, 'jactrace'):
             delattr(tensor, 'jactrace')
 
-        if not hasattr(tensor, 'optrace'):
+        if not has_trace(tensor):
             continue
 
-        trace = tensor.optrace
+        trace = get_trace(tensor)
         op = trace[0]
         if op == 'map':
             args = trace[2]
@@ -277,7 +286,7 @@ def _parameter_index(tensor, params):
 
 def _append_functional_trace(tensor, trace, params, contributions):
     """Continue through a traced node or record a parameter contribution."""
-    if isinstance(tensor, torch.Tensor) and hasattr(tensor, "optrace"):
+    if isinstance(tensor, torch.Tensor) and has_trace(tensor):
         _functional_backward(tensor, trace, params, contributions)
         return
 
@@ -293,7 +302,7 @@ def _functional_backward(output, upstream, params, contributions):
     Runtime Jacobian state is represented only by tensor tuples, rather than by
     adding and deleting ``jactrace`` attributes on Tensor/FakeTensor objects.
     """
-    output_trace = output.optrace
+    output_trace = get_trace(output)
     op = output_trace[0]
 
     if op == "map":
@@ -305,8 +314,10 @@ def _functional_backward(output, upstream, params, contributions):
         args = tuple(_materialize_trace_arg(arg) for arg in trace_args)
         argnums = tuple(
             index
-            for index, arg in enumerate(args)
-            if hasattr(arg, "optrace") or isinstance(arg, torch.nn.Parameter)
+            for index, (arg, trace_arg) in enumerate(zip(args, trace_args))
+            if _is_indexed_trace_arg(trace_arg)
+            or has_trace(arg)
+            or is_traced_parameter(arg)
         )
         if len(argnums) == 0:
             return
@@ -385,7 +396,7 @@ def jacobian_components(output, params):
     components arise when distinct compute-graph branches contribute to the
     same parameter and are combined during eager materialization.
     """
-    assert output.optrace[0] in (
+    assert get_trace(output)[0] in (
         "map",
         "index",
         "cat",
@@ -456,11 +467,18 @@ def backward(output_, is_root=False):
     if (not is_root) and (not hasattr(output_, 'jactrace')):
         return
 
-    output_trace = output_.optrace
+    output_trace = get_trace(output_)
     if output_trace[0] == 'map':
         func = output_trace[1]
         args = tuple(_materialize_trace_arg(arg) for arg in output_trace[2])
-        argnums = tuple(idx for idx, arg in enumerate(args) if hasattr(arg, 'optrace') or isinstance(arg, torch.nn.Parameter))
+        trace_args = output_trace[2]
+        argnums = tuple(
+            idx
+            for idx, (arg, trace_arg) in enumerate(zip(args, trace_args))
+            if _is_indexed_trace_arg(trace_arg)
+            or has_trace(arg)
+            or is_traced_parameter(arg)
+        )
         if len(argnums) == 0:
             warnings.warn("No upstream parameters to compute jacobian", stacklevel=2)
             return
@@ -497,7 +515,7 @@ def backward(output_, is_root=False):
         seen = set()
         for argidx in argnums:
             arg = args[argidx]
-            if isinstance(arg, torch.Tensor) and hasattr(arg, 'optrace'):
+            if isinstance(arg, torch.Tensor) and has_trace(arg):
                 arg_id = id(arg)
                 if arg_id in seen:
                     continue
@@ -541,7 +559,7 @@ def backward(output_, is_root=False):
             jac_trace = update_from_trace(output_.jactrace, arg, new_col=index)
             
         amend_trace(arg, jac_trace)
-        if isinstance(arg, torch.Tensor) and hasattr(arg, 'optrace'):
+        if isinstance(arg, torch.Tensor) and has_trace(arg):
             backward(arg, is_root=False)
 
         if hasattr(output_, 'jactrace'):
@@ -579,7 +597,7 @@ def backward(output_, is_root=False):
                 raise TypeError(f"Unsupported upstream jactrace type: {type(upstream)}")
 
             amend_trace(arg, jac_trace)
-            if isinstance(arg, torch.Tensor) and hasattr(arg, 'optrace'):
+            if isinstance(arg, torch.Tensor) and has_trace(arg):
                 backward(arg, is_root=False)
 
         if hasattr(output_, 'jactrace'):
@@ -587,7 +605,7 @@ def backward(output_, is_root=False):
 
 
 def jacobian(output, params):
-    assert output.optrace[0] in ('map', 'index', 'cat'), "Unsupported last operation in compute graph"
+    assert get_trace(output)[0] in ('map', 'index', 'cat'), "Unsupported last operation in compute graph"
     _clear_jactrace(output, params)
     try:
         backward(output, is_root=True)
