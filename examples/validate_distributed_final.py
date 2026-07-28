@@ -239,6 +239,7 @@ def _worker(
     mode: str,
     cg_iterations: int,
     point_inner: str,
+    damping: float | None,
     queue,
 ) -> None:
     block_operator_type = None
@@ -260,6 +261,7 @@ def _worker(
         )
         from bae.optim.optimizer import Schur
         from bae.utils.pysolvers import PCG
+        from pypose.optim.strategy import TrustRegion
 
         if point_inner == "global":
             block_operator_type = DistributedBlockDiagonalOperator
@@ -296,12 +298,19 @@ def _worker(
             "camera_indices": make_dtensor("camera_indices"),
             "point_indices": make_dtensor("point_indices"),
         }
+        optimizer_kwargs = {}
+        if damping is not None:
+            optimizer_kwargs["strategy"] = TrustRegion(
+                radius=1.0 / damping
+            )
         optimizer = Schur(
             model,
             solver=PCG(tol=1e-4, maxiter=cg_iterations),
             matrix_free_normal=True,
             reject=0,
+            **optimizer_kwargs,
         )
+        initial_damping = optimizer.param_groups[0]["damping"]
 
         counts = {
             "all_to_all_single": 0,
@@ -383,6 +392,7 @@ def _worker(
             "rank": rank,
             "mode": mode,
             "point_inner": point_inner,
+            "initial_damping": initial_damping,
             "global_shapes": {
                 name: list(shape) for name, shape in global_shapes.items()
             },
@@ -430,6 +440,8 @@ def run_mode(
     mode: str,
     cg_iterations: int,
     point_inner: str,
+    damping: float | None,
+    world_size: int,
 ) -> list[dict]:
     context = mp.get_context("spawn")
     queue = context.SimpleQueue()
@@ -439,18 +451,22 @@ def run_mode(
         mp.spawn(
             _worker,
             args=(
-                2,
+                world_size,
                 init_file,
                 source,
                 mode,
                 cg_iterations,
                 point_inner,
+                damping,
                 queue,
             ),
-            nprocs=2,
+            nprocs=world_size,
             join=True,
         )
-        return sorted([queue.get(), queue.get()], key=lambda item: item["rank"])
+        return sorted(
+            [queue.get() for _ in range(world_size)],
+            key=lambda item: item["rank"],
+        )
     finally:
         if os.path.exists(init_file):
             os.unlink(init_file)
@@ -469,6 +485,14 @@ def main() -> None:
         default="both",
     )
     parser.add_argument("--cg-iterations", type=int, default=10)
+    parser.add_argument("--world-size", type=int, default=2)
+    parser.add_argument(
+        "--damping",
+        type=float,
+        action="append",
+        help="Initial damping. May be repeated to sweep values in one run. "
+        "When omitted, use the optimizer default.",
+    )
     parser.add_argument(
         "--point-inner",
         choices=("owner-local", "global", "both"),
@@ -482,6 +506,8 @@ def main() -> None:
         default=Path("distributed_final_validation.json"),
     )
     args = parser.parse_args()
+    if args.world_size <= 0:
+        parser.error("--world-size must be positive")
 
     load_started = perf_counter()
     source = load_bal_fast(args.dataset)
@@ -495,11 +521,18 @@ def main() -> None:
         if args.point_inner == "both"
         else (args.point_inner,)
     )
+    dampings = tuple(args.damping) if args.damping else (None,)
+    if any(
+        damping is not None and damping <= 0 for damping in dampings
+    ):
+        parser.error("--damping values must be positive")
     report = {
         "dataset": str(args.dataset),
         "load_seconds": load_seconds,
         "cg_iterations": args.cg_iterations,
+        "world_size": args.world_size,
         "point_inner": args.point_inner,
+        "dampings": list(dampings),
         "source_shapes": {
             name: list(tensor.shape) for name, tensor in source.items()
         },
@@ -507,17 +540,24 @@ def main() -> None:
     }
     for mode in modes:
         for point_inner in point_inners:
-            key = (
-                mode
-                if len(point_inners) == 1
-                else f"{mode}:{point_inner}"
-            )
-            results = run_mode(
-                source, mode, args.cg_iterations, point_inner
-            )
-            report["runs"][key] = results
-            print(json.dumps({key: results}, indent=2), flush=True)
-            args.output.write_text(json.dumps(report, indent=2) + "\n")
+            for damping in dampings:
+                key_parts = [mode]
+                if len(point_inners) > 1:
+                    key_parts.append(point_inner)
+                if len(dampings) > 1:
+                    key_parts.append(f"damping={damping:g}")
+                key = ":".join(key_parts)
+                results = run_mode(
+                    source,
+                    mode,
+                    args.cg_iterations,
+                    point_inner,
+                    damping,
+                    args.world_size,
+                )
+                report["runs"][key] = results
+                print(json.dumps({key: results}, indent=2), flush=True)
+                args.output.write_text(json.dumps(report, indent=2) + "\n")
 
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     print(f"Wrote {args.output}", flush=True)

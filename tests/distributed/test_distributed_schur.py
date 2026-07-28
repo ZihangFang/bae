@@ -12,6 +12,7 @@ from pypose.autograd.function import psjac
 from torch import nn
 from torch.distributed.tensor import DeviceMesh, Shard, distribute_tensor
 
+from bae.distributed.schur import inverse_blocks
 from bae.optim.optimizer import Schur
 from bae.utils.pysolvers import PCG
 
@@ -113,6 +114,30 @@ def _problem():
         "camera_indices": camera_indices,
         "point_indices": point_indices,
     }
+
+
+def test_inverse_blocks_uses_off_diagonal_entries():
+    blocks = torch.tensor(
+        [[[4.0, 1.0], [1.0, 3.0]]], dtype=torch.float64
+    )
+    actual = inverse_blocks(blocks)
+    torch.testing.assert_close(actual, torch.linalg.inv(blocks))
+    assert actual[0, 0, 1] != 0
+
+
+def test_schur_default_damping_and_explicit_strategy():
+    model = _AdditiveBA(
+        torch.zeros(2, 2, dtype=torch.float64),
+        torch.zeros(2, 2, dtype=torch.float64),
+    )
+    optimizer = Schur(model, solver=PCG(maxiter=2))
+    assert optimizer.param_groups[0]["damping"] == pytest.approx(1e-3)
+
+    custom = pp.optim.strategy.TrustRegion(radius=1e5)
+    custom_optimizer = Schur(
+        model, solver=PCG(maxiter=2), strategy=custom
+    )
+    assert custom_optimizer.param_groups[0]["damping"] == pytest.approx(1e-5)
 
 
 def _schur_worker(rank, world_size, init_file, problem, queue):

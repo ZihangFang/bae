@@ -2,6 +2,7 @@ from functools import partial
 import torch
 import torch.distributed as dist
 from pypose.optim import LevenbergMarquardt as ppLM
+from pypose.optim.strategy import TrustRegion
 import pypose as pp
 from torch.utils._pytree import tree_flatten, tree_map
 
@@ -127,6 +128,14 @@ class LM(ppLM):
 
 
 class Schur(LM):
+    def __init__(self, *args, **kwargs):
+        # A mildly damped initial Schur solve is substantially more robust
+        # with finite-iteration block-Jacobi PCG than LM's near-Gauss-Newton
+        # default. Explicit user strategies continue to take precedence.
+        if len(args) < 3 and kwargs.get("strategy") is None:
+            kwargs["strategy"] = TrustRegion(radius=1e3)
+        super().__init__(*args, **kwargs)
+
     @torch.no_grad()
     def step(self, input, target=None, weight=None):
         parameters = tuple(
@@ -490,7 +499,7 @@ class Schur(LM):
             DistributedBlockDiagonalOperator,
             DistributedSchurCameraOperator,
             apply_block_matrix,
-            inverse_diagonal_blocks,
+            inverse_blocks,
         )
 
         camera, point = self._validate_distributed_inputs(input, target)
@@ -587,7 +596,7 @@ class Schur(LM):
                 point_ownership=point_ownership,
             )
             camera_preconditioner = DistributedBlockDiagonalOperator(
-                inverse_diagonal_blocks(U_effective), process_group
+                inverse_blocks(U_effective), process_group
             )
             camera_step = self.solver(
                 camera_operator,
@@ -619,7 +628,7 @@ class Schur(LM):
                 owner_local_inner=True,
             )
             point_preconditioner = DistributedBlockDiagonalOperator(
-                inverse_diagonal_blocks(V_effective),
+                V_inverse,
                 process_group,
                 owner_local_inner=True,
             )

@@ -15,18 +15,12 @@ def apply_block_matrix(blocks: torch.Tensor, vectors: torch.Tensor) -> torch.Ten
     return torch.einsum("bij,bj->bi", blocks, vectors)
 
 
-def inverse_diagonal_blocks(blocks: torch.Tensor) -> torch.Tensor:
-    result = torch.zeros_like(blocks)
+def inverse_blocks(blocks: torch.Tensor) -> torch.Tensor:
+    """Invert each owner-local dense block for block-Jacobi preconditioning."""
+
     if blocks.numel() == 0:
-        return result
-    diagonal = torch.diagonal(blocks, dim1=-2, dim2=-1)
-    inverse = torch.where(
-        diagonal.abs() > 1e-12,
-        diagonal.reciprocal(),
-        torch.ones_like(diagonal),
-    )
-    torch.diagonal(result, dim1=-2, dim2=-1).copy_(inverse)
-    return result
+        return blocks.clone()
+    return torch.linalg.inv(blocks)
 
 
 class _DistributedOperator:
