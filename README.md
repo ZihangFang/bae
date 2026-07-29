@@ -87,6 +87,8 @@
 - [ ] Distributed Tensor (DTensor) and FSDP support for multi-GPU and distributed optimization (WIP in `distributed_proto`)
 - [x] Schur complement (added in [PR #35](https://github.com/pypose/bae/pull/35))
 - [ ] Add Apple Silicon GPU support, [PyTorch PR WIP](https://github.com/pytorch/pytorch/pull/177757)
+- [ ] **Community-requested features:** Need support for a new framework, hardware backend, or more efficient memory allocation? Open an issue and tell us about your use case; we’d love to hear what you need.
+
 
 ## Installation
 
