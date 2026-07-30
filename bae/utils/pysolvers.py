@@ -23,6 +23,9 @@ class PCG(CG):
     def __init__(self, maxiter=None, tol=1e-5):
         super().__init__(maxiter, tol)
     def forward(self, A, b, x=None, M=None) -> torch.Tensor:
+        if hasattr(A, "scalar_inner"):
+            return self._operator_forward(A, b, x=x, M=M)
+
         was_vector = b.dim() == 1
         if was_vector:
             b = b[..., None]
@@ -36,6 +39,44 @@ class PCG(CG):
         if was_vector:
             res = res.squeeze(-1)
         return res
+
+    def _operator_forward(self, A, b, x=None, M=None) -> torch.Tensor:
+        """CG using an operator-defined scalar product."""
+
+        if x is None:
+            x = torch.zeros_like(b)
+            r = b.clone()
+        else:
+            x = x.clone()
+            r = b - (A @ x)
+        bnorm = torch.sqrt(A.scalar_inner(b, b)).clamp_min(1e-12)
+        maxiter = self.maxiter if self.maxiter is not None else 250
+        p = None
+        rho_previous = None
+
+        for _ in range(maxiter):
+            residual_norm = torch.sqrt(A.scalar_inner(r, r))
+            if residual_norm.item() <= self.tol * bnorm.item():
+                break
+
+            z = (M @ r) if M is not None else r
+            rho = A.scalar_inner(r, z)
+            if p is None:
+                p = z.clone()
+            else:
+                if rho_previous is None or rho_previous.abs().item() < 1e-30:
+                    break
+                p = z + (rho / rho_previous) * p
+
+            q = A @ p
+            denominator = A.scalar_inner(p, q)
+            if denominator.abs().item() < 1e-30:
+                break
+            alpha = rho / denominator
+            x = x + alpha * p
+            r = r - alpha * q
+            rho_previous = rho
+        return x
 
 class SciPySpSolver(torch.nn.Module):
     def __init__(self, ):

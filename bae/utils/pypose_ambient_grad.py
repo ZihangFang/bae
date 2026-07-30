@@ -8,7 +8,7 @@ _PATCH_INSTALLED = False
 
 def pypose_ambient_grad_enabled() -> bool:
     value = os.environ.get(_ENV_FLAG, "")
-    return value.lower() in {"1", "true", "yes", "on"}
+    return _PATCH_INSTALLED or value.lower() in {"1", "true", "yes", "on"}
 
 
 def _pm(input: torch.Tensor) -> torch.Tensor:
