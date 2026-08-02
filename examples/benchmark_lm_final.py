@@ -18,8 +18,8 @@ from pypose.autograd.function import psjac
 from pypose.optim.strategy import TrustRegion
 from torch import nn
 
-import bae.optim.optimizer as optimizer_module
-from bae.optim.optimizer import LM
+import bae.optim.linearizer as linearizer_module
+from bae.optim import ComponentLinearizer, LM, PytreePartition
 from bae.utils.linear_operator import (
     ComponentBlockDiagonalPreconditioner,
     ComponentJacobianOperator,
@@ -50,9 +50,7 @@ def _rotvec_to_quaternion(camera_parameters: torch.Tensor) -> torch.Tensor:
         torch.sin(half_theta) / theta,
         0.5 - theta.square() / 48.0,
     )
-    quaternion = torch.cat(
-        [rotation * scale, torch.cos(half_theta)], dim=-1
-    )
+    quaternion = torch.cat([rotation * scale, torch.cos(half_theta)], dim=-1)
     return torch.cat(
         [
             camera_parameters[:, 3:6],
@@ -80,9 +78,7 @@ def load_bal_fast(path: Path) -> dict[str, torch.Tensor]:
             f"read {values.size:,}."
         )
 
-    observations_raw = values[:observation_values].reshape(
-        observation_count, 4
-    )
+    observations_raw = values[:observation_values].reshape(observation_count, 4)
     cameras_start = observation_values
     points_start = cameras_start + camera_values
     return {
@@ -92,14 +88,10 @@ def load_bal_fast(path: Path) -> dict[str, torch.Tensor]:
         "point_indices": torch.from_numpy(
             observations_raw[:, 1].astype(np.int64, copy=True)
         ),
-        "observations": torch.from_numpy(
-            observations_raw[:, 2:4].copy()
-        ),
+        "observations": torch.from_numpy(observations_raw[:, 2:4].copy()),
         "cameras": _rotvec_to_quaternion(
             torch.from_numpy(
-                values[cameras_start:points_start]
-                .reshape(camera_count, 9)
-                .copy()
+                values[cameras_start:points_start].reshape(camera_count, 9).copy()
             )
         ),
         "points": torch.from_numpy(
@@ -117,9 +109,7 @@ def _make_model(cameras, points):
         k1 = camera_parameters[..., [-2]]
         k2 = camera_parameters[..., [-1]]
         radius = torch.sum(projection.square(), dim=-1, keepdim=True)
-        return projection * (
-            1 + k1 * radius + k2 * radius.square()
-        ) * focal
+        return projection * (1 + k1 * radius + k2 * radius.square()) * focal
 
     class Residual(nn.Module):
         def __init__(self):
@@ -198,9 +188,7 @@ def main() -> None:
     source = load_bal_fast(args.dataset)
     load_seconds = perf_counter() - load_started
     device = torch.device(args.device)
-    tensors = {
-        name: tensor.to(device) for name, tensor in source.items()
-    }
+    tensors = {name: tensor.to(device) for name, tensor in source.items()}
     model = _make_model(
         tensors["cameras"].clone(),
         tensors["points"].clone(),
@@ -210,6 +198,17 @@ def main() -> None:
         "camera_indices": tensors["camera_indices"],
         "point_indices": tensors["point_indices"],
     }
+    linearizer = ComponentLinearizer(
+        chunk_size=args.evaluation_chunk_size or None,
+        partition=PytreePartition(
+            input_dims={
+                "observations": 0,
+                "camera_indices": 0,
+                "point_indices": 0,
+            }
+        ),
+        compile=args.compile_evaluation,
+    )
     optimizer = LM(
         model,
         solver=PCG(
@@ -217,9 +216,7 @@ def main() -> None:
             maxiter=args.pcg_iterations,
         ),
         strategy=TrustRegion(radius=1.0 / args.damping),
-        matrix_free_normal=True,
-        evaluation_chunk_size=args.evaluation_chunk_size or None,
-        compile_evaluation=args.compile_evaluation,
+        linearizer=linearizer,
         reject=0,
     )
     initial_loss = float(optimizer.model.loss(inputs, None))
@@ -229,9 +226,7 @@ def main() -> None:
     compile_warmup_peak_reserved_bytes = None
     if args.warmup_compiled_evaluation:
         if not args.compile_evaluation:
-            parser.error(
-                "--warmup-compiled-evaluation requires --compile-evaluation"
-            )
+            parser.error("--warmup-compiled-evaluation requires --compile-evaluation")
         if device.type == "cuda":
             torch.cuda.empty_cache()
             torch.cuda.reset_peak_memory_stats(device)
@@ -246,8 +241,8 @@ def main() -> None:
         for _ in range(args.compiled_warmup_repetitions):
             repetition_started = perf_counter()
             with torch.no_grad():
-                warmup_result = optimizer._matrix_free_evaluate(
-                    inputs, None, active_params
+                warmup_result = linearizer.evaluate(
+                    optimizer.model, inputs, None, active_params
                 )
             if device.type == "cuda":
                 torch.cuda.synchronize(device)
@@ -257,12 +252,10 @@ def main() -> None:
             del warmup_result
         if device.type == "cuda":
             torch.cuda.synchronize(device)
-            compile_warmup_peak_allocated_bytes = (
-                torch.cuda.max_memory_allocated(device)
+            compile_warmup_peak_allocated_bytes = torch.cuda.max_memory_allocated(
+                device
             )
-            compile_warmup_peak_reserved_bytes = (
-                torch.cuda.max_memory_reserved(device)
-            )
+            compile_warmup_peak_reserved_bytes = torch.cuda.max_memory_reserved(device)
         compile_warmup_seconds = perf_counter() - warmup_started
     memory_events = []
     call_counts = defaultdict(int)
@@ -276,9 +269,7 @@ def main() -> None:
                 "label": label,
                 "allocated_bytes": torch.cuda.memory_allocated(device),
                 "reserved_bytes": torch.cuda.memory_reserved(device),
-                "peak_allocated_bytes": torch.cuda.max_memory_allocated(
-                    device
-                ),
+                "peak_allocated_bytes": torch.cuda.max_memory_allocated(device),
             }
         )
 
@@ -298,7 +289,7 @@ def main() -> None:
 
     if args.profile_memory:
         wrap_function(
-            optimizer_module,
+            linearizer_module,
             "jacobian_components",
             "jacobian_components",
         )
@@ -375,15 +366,9 @@ def main() -> None:
         "evaluation_chunk_size": args.evaluation_chunk_size or None,
         "compile_evaluation": args.compile_evaluation,
         "compile_warmup_seconds": compile_warmup_seconds,
-        "compile_warmup_repetition_seconds": (
-            compile_warmup_repetition_seconds
-        ),
-        "compile_warmup_peak_allocated_bytes": (
-            compile_warmup_peak_allocated_bytes
-        ),
-        "compile_warmup_peak_reserved_bytes": (
-            compile_warmup_peak_reserved_bytes
-        ),
+        "compile_warmup_repetition_seconds": (compile_warmup_repetition_seconds),
+        "compile_warmup_peak_allocated_bytes": (compile_warmup_peak_allocated_bytes),
+        "compile_warmup_peak_reserved_bytes": (compile_warmup_peak_reserved_bytes),
         "initial_loss": initial_loss,
         "final_loss": float(final_loss),
         "elapsed_seconds": elapsed,
@@ -392,12 +377,8 @@ def main() -> None:
     if device.type == "cuda":
         result.update(
             {
-                "peak_allocated_bytes": torch.cuda.max_memory_allocated(
-                    device
-                ),
-                "peak_reserved_bytes": torch.cuda.max_memory_reserved(
-                    device
-                ),
+                "peak_allocated_bytes": torch.cuda.max_memory_allocated(device),
+                "peak_reserved_bytes": torch.cuda.max_memory_reserved(device),
             }
         )
     args.output.write_text(json.dumps(result, indent=2) + "\n")
