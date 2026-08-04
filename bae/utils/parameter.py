@@ -32,14 +32,6 @@ def trim_parameter_jacobian_values(
     values: torch.Tensor,
     block_indices: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    # Jacobian blocks are terminal numeric outputs of graph traversal.  A
-    # TrackingTensor subclass can survive functorch when a distributed trace
-    # passes through a ``psjac`` function; retaining that subclass here would
-    # incorrectly interpret shape-only trimming operations as model tracing.
-    from bae.autograd.function import TrackingTensor
-
-    if isinstance(values, TrackingTensor):
-        values = torch.Tensor(values)
     if param.ndim == 0 or values.shape[-1] != param.shape[-1]:
         return values
     try:
@@ -57,18 +49,7 @@ def trim_parameter_jacobian_values(
     )
     if trim_se3_grad:
         if not pypose_ambient_grad_enabled():
-            # Avoid a non-leading-dimension ``cat`` here. During Dynamo tracing,
-            # functorch can retain the TrackingTensor subclass on Jacobian
-            # blocks even though these values are terminal numeric outputs.
-            # ``index_select`` expresses the same removal of the quaternion's
-            # redundant scalar coordinate without creating a trace edge.
-            indices = torch.arange(
-                values.shape[-1] - 1,
-                device=values.device,
-                dtype=torch.long,
-            )
-            indices = indices + (indices >= 6)
-            return torch.index_select(values, -1, indices)
+            return torch.cat([values[..., :6], values[..., 7:]], dim=-1)
         if distributed_metadata is not None:
             from bae.distributed.ops import distributed_index
 

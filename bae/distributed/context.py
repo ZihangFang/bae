@@ -1,4 +1,4 @@
-"""DTensor sparse-Jacobian tracing context."""
+"""Compile-time DTensor sparse-Jacobian tracing context."""
 
 from __future__ import annotations
 
@@ -10,13 +10,22 @@ from typing import Optional
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 
-from ..autograd.trace import has_trace, set_sidecar_trace
-
 try:
     from torch.distributed.tensor import DTensor, Shard
 except ImportError:  # pragma: no cover - supported PyTorch versions provide DTensor
     DTensor = ()
     Shard = ()
+
+
+def _has_compile_trace(tensor: object) -> bool:
+    """Return whether Dynamo-visible sparse structure is attached."""
+    return isinstance(tensor, torch.Tensor) and hasattr(tensor, "optrace")
+
+
+def _set_compile_trace(tensor: torch.Tensor, trace):
+    """Attach metadata consumed while Dynamo unrolls jacobian_components."""
+    tensor.optrace = trace
+    return tensor
 
 
 @dataclass(frozen=True)
@@ -156,7 +165,7 @@ def parameter_metadata_by_key(key: int) -> DistributedParameterMetadata:
 
 
 class DistributedTraceContext:
-    """Registers DTensor leaves and owns their dispatch mode."""
+    """Registers DTensor leaves and owns their compile-time dispatch mode."""
 
     def __init__(self, parameters=()):
         self.parameters = tuple(parameters)
@@ -191,7 +200,7 @@ class DistributedTraceContext:
 
 
 class DistributedTraceMode(TorchDispatchMode):
-    """Replaces global indexing of registered sharded parameters."""
+    """Replaces global indexing and records structure during Dynamo capture."""
 
     def __init__(self, context: DistributedTraceContext):
         super().__init__()
@@ -219,17 +228,21 @@ class DistributedTraceMode(TorchDispatchMode):
 
             index = tensor_indices[0]
             result = distributed_index(parameter, index)
-            set_sidecar_trace(result, ("index", index, parameter))
+            _set_compile_trace(result, ("index", index, parameter))
             self.seen_distributed_index = True
             return result
 
         result = func(*args, **kwargs)
-        if func is torch.ops.aten.index.Tensor and args and has_trace(args[0]):
+        if (
+            func is torch.ops.aten.index.Tensor
+            and args
+            and _has_compile_trace(args[0])
+        ):
             tensor_indices = args[1]
             if len(tensor_indices) == 1 and isinstance(
                 tensor_indices[0], torch.Tensor
             ):
-                set_sidecar_trace(
+                _set_compile_trace(
                     result, ("index", tensor_indices[0], args[0])
                 )
             return result
@@ -241,18 +254,18 @@ class DistributedTraceMode(TorchDispatchMode):
             torch.ops.aten.div.Tensor,
         }
         if func in map_functions and any(
-            isinstance(arg, torch.Tensor) and has_trace(arg)
+            _has_compile_trace(arg)
             for arg in args
         ):
             from ..autograd.function import _compact_map_arg
 
             compact_args = tuple(_compact_map_arg(arg) for arg in args)
-            set_sidecar_trace(result, ("map", func, compact_args))
+            _set_compile_trace(result, ("map", func, compact_args))
             return result
 
         if func is torch.ops.aten.cat.default:
             tensors = args[0]
-            if any(has_trace(tensor) for tensor in tensors):
+            if any(_has_compile_trace(tensor) for tensor in tensors):
                 dimension = kwargs.get("dim", args[1] if len(args) > 1 else 0)
                 if dimension != 0:
                     raise NotImplementedError(
@@ -262,13 +275,13 @@ class DistributedTraceMode(TorchDispatchMode):
                 offset = 0
                 for tensor in tensors:
                     end = offset + tensor.shape[0]
-                    if has_trace(tensor) or (
+                    if _has_compile_trace(tensor) or (
                         isinstance(tensor, DTensor)
                         and is_registered_parameter(tensor)
                     ):
                         tracked.append((offset, end, tensor))
                     offset = end
-                set_sidecar_trace(result, ("cat", 0, tuple(tracked)))
+                _set_compile_trace(result, ("cat", 0, tuple(tracked)))
         return result
 
 
