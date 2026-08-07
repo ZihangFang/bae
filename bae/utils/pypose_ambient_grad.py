@@ -35,14 +35,23 @@ def _so3_act_components(qx, qy, qz, qw, px, py, pz):
 def _so3_act_forward(X: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
     quaternion = X.unbind(dim=-1)
     point = p.unbind(dim=-1)
-    return torch.stack(_so3_act_components(*quaternion, *point), dim=-1)
+    return torch.cat(
+        tuple(
+            component.unsqueeze(-1)
+            for component in _so3_act_components(*quaternion, *point)
+        ),
+        dim=-1,
+    )
 
 
 def _se3_act_forward(X: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
     tx, ty, tz, qx, qy, qz, qw = X.unbind(dim=-1)
     px, py, pz = p.unbind(dim=-1)
     rx, ry, rz = _so3_act_components(qx, qy, qz, qw, px, py, pz)
-    return torch.stack((tx + rx, ty + ry, tz + rz), dim=-1)
+    return torch.cat(
+        tuple(component.unsqueeze(-1) for component in (tx + rx, ty + ry, tz + rz)),
+        dim=-1,
+    )
 
 
 def _so3_mul_forward(X: torch.Tensor, Y: torch.Tensor) -> torch.Tensor:

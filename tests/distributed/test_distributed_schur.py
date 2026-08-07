@@ -12,8 +12,10 @@ from pypose.autograd.function import psjac
 from torch import nn
 from torch.distributed.tensor import DeviceMesh, Shard, distribute_tensor
 
+from bae.distributed.context import DistributedIndexContext
 from bae.distributed.schur import inverse_blocks
 from bae.optim.optimizer import Schur
+from bae.utils.pypose_ambient_grad import _se3_act_forward
 from bae.utils.pysolvers import PCG
 
 
@@ -123,6 +125,102 @@ def test_inverse_blocks_uses_off_diagonal_entries():
     actual = inverse_blocks(blocks)
     torch.testing.assert_close(actual, torch.linalg.inv(blocks))
     assert actual[0, 0, 1] != 0
+
+
+def _distributed_index_worker(rank, world_size, init_file):
+    dist.init_process_group(
+        "gloo",
+        init_method=f"file://{init_file}",
+        rank=rank,
+        world_size=world_size,
+    )
+    try:
+        mesh = DeviceMesh("cpu", torch.arange(world_size))
+        values = torch.arange(18, dtype=torch.float64).reshape(6, 3)
+        indices = torch.tensor([5, 0, 3, 1, 4, 2, 0, 5], dtype=torch.long)
+        parameter = distribute_tensor(values, mesh, [Shard(0)])
+        distributed_indices = distribute_tensor(indices, mesh, [Shard(0)])
+        local_indices = distributed_indices.to_local()
+        expected = values[local_indices]
+
+        with DistributedIndexContext((parameter,)):
+            local_result = parameter[local_indices]
+        assert not isinstance(local_result, type(parameter))
+        torch.testing.assert_close(local_result, expected)
+
+        with DistributedIndexContext((parameter,)):
+            sharded_index_result = parameter[distributed_indices]
+        assert isinstance(sharded_index_result, type(parameter))
+        assert sharded_index_result.placements == (Shard(0),)
+        torch.testing.assert_close(sharded_index_result.to_local(), expected)
+
+        def indexed(local_or_distributed_indices):
+            return parameter[local_or_distributed_indices] * 2.0
+
+        compiled_local = torch.compile(indexed, backend="eager", fullgraph=True)
+        with DistributedIndexContext((parameter,)):
+            compiled_local_result = compiled_local(local_indices)
+        torch.testing.assert_close(compiled_local_result, expected * 2.0)
+
+        compiled_sharded_index = torch.compile(indexed, backend="eager", fullgraph=True)
+        with DistributedIndexContext((parameter,)):
+            compiled_sharded_index_result = compiled_sharded_index(distributed_indices)
+        assert compiled_sharded_index_result.placements == (Shard(0),)
+        torch.testing.assert_close(
+            compiled_sharded_index_result.to_local(), expected * 2.0
+        )
+
+        poses = torch.zeros((6, 7), dtype=torch.float64)
+        poses[:, :3] = values[:, :3]
+        poses[:, 6] = 1.0
+        points = values[:, :3] * 0.1
+        distributed_poses = distribute_tensor(poses, mesh, [Shard(0)])
+        distributed_points = distribute_tensor(points, mesh, [Shard(0)])
+        point_indices = torch.flip(indices, dims=(0,))
+        distributed_point_indices = distribute_tensor(point_indices, mesh, [Shard(0)])
+        expected_action = _se3_act_forward(
+            poses[local_indices],
+            points[distributed_point_indices.to_local()],
+        )
+
+        def functional_action(camera_indices, selected_point_indices):
+            return _se3_act_forward(
+                distributed_poses[camera_indices],
+                distributed_points[selected_point_indices],
+            )
+
+        compiled_action = torch.compile(
+            functional_action, backend="eager", fullgraph=True
+        )
+        with DistributedIndexContext((distributed_poses, distributed_points)):
+            distributed_action = compiled_action(
+                distributed_indices,
+                distributed_point_indices,
+            )
+        assert distributed_action.placements == (Shard(0),), str(
+            distributed_action.placements
+        )
+        torch.testing.assert_close(
+            distributed_action.to_local(),
+            expected_action,
+        )
+    finally:
+        dist.destroy_process_group()
+
+
+def test_custom_index_result_type_follows_index_type():
+    handle, init_file = tempfile.mkstemp(prefix="bae-index-output-")
+    os.close(handle)
+    try:
+        mp.spawn(
+            _distributed_index_worker,
+            args=(2, init_file),
+            nprocs=2,
+            join=True,
+        )
+    finally:
+        if os.path.exists(init_file):
+            os.unlink(init_file)
 
 
 def test_schur_default_damping_and_explicit_strategy():
