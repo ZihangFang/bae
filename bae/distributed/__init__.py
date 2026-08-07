@@ -1,5 +1,11 @@
 """Internal distributed building blocks used by :class:`bae.optim.Schur`."""
 
-from .context import DistributedTraceContext, DistributedTraceMode
+from .context import (
+    DistributedIndexContext,
+    DistributedIndexMode,
+)
 
-__all__ = ["DistributedTraceContext", "DistributedTraceMode"]
+__all__ = [
+    "DistributedIndexContext",
+    "DistributedIndexMode",
+]

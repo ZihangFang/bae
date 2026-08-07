@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import torch
 import torch.distributed as dist
+from torch.distributed.tensor import DTensor, Shard
 
 from .context import parameter_metadata, parameter_metadata_by_key
 from .plan import GatherPlan, Ownership, build_gather_plan
@@ -31,9 +32,7 @@ def ghost_gather(owned_blocks: torch.Tensor, plan: GatherPlan) -> torch.Tensor:
             group=plan.ownership.process_group,
         )
 
-    evaluation = owned_blocks.new_empty(
-        (plan.evaluation_ids.numel(), *feature_shape)
-    )
+    evaluation = owned_blocks.new_empty((plan.evaluation_ids.numel(), *feature_shape))
     if received.numel():
         evaluation.index_copy_(0, plan.receive_positions, received)
     return evaluation
@@ -46,9 +45,7 @@ def _get_or_build_plan(parameter_key: int, indices: torch.Tensor) -> GatherPlan:
 
     # Plan construction is collective.  If one observation shard changes, all
     # ranks must rebuild even when another rank's local index values did not.
-    changed = torch.tensor(
-        int(local_changed), device=indices.device, dtype=torch.int32
-    )
+    changed = torch.tensor(int(local_changed), device=indices.device, dtype=torch.int32)
     if metadata.mesh.size() > 1:
         sent_changes = changed.expand(metadata.mesh.size()).contiguous()
         received_changes = torch.empty_like(sent_changes)
@@ -59,9 +56,7 @@ def _get_or_build_plan(parameter_key: int, indices: torch.Tensor) -> GatherPlan:
         )
         changed = received_changes.max()
     if bool(changed.item()):
-        plan = build_gather_plan(
-            indices, Ownership.from_parameter(metadata)
-        )
+        plan = build_gather_plan(indices, Ownership.from_parameter(metadata))
         _GATHER_PLAN_CACHE[parameter_key] = (indices.detach().clone(), plan)
         return plan
     assert cached is not None
@@ -86,15 +81,47 @@ def _distributed_index_fake(
     global_indices: torch.Tensor,
     parameter_key: int,
 ) -> torch.Tensor:
-    return owned_blocks.new_empty(
-        (*global_indices.shape, *owned_blocks.shape[1:])
-    )
+    return owned_blocks.new_empty((*global_indices.shape, *owned_blocks.shape[1:]))
+
+
+def _contiguous_stride(shape: torch.Size) -> tuple[int, ...]:
+    stride = []
+    running = 1
+    for size in reversed(shape):
+        stride.append(running)
+        running *= size
+    return tuple(reversed(stride))
 
 
 def distributed_index(parameter, global_indices: torch.Tensor) -> torch.Tensor:
+    """Gather globally indexed parameter rows into the local observation order."""
+
     metadata = parameter_metadata(parameter)
-    return _distributed_index_op(
-        parameter.to_local(), global_indices, metadata.key
+    indices_are_distributed = isinstance(global_indices, DTensor)
+    if indices_are_distributed and (
+        global_indices.device_mesh != metadata.mesh
+        or global_indices.placements != (Shard(0),)
+    ):
+        raise ValueError(
+            "DTensor indices must use the parameter mesh and placements=[Shard(0)]."
+        )
+    local_indices = (
+        global_indices.to_local() if indices_are_distributed else global_indices
+    )
+    local_result = _distributed_index_op(
+        parameter.to_local(), local_indices, metadata.key
+    )
+    if not indices_are_distributed:
+        return local_result
+
+    global_shape = torch.Size((*global_indices.shape, *metadata.global_shape[1:]))
+    return DTensor.from_local(
+        local_result,
+        metadata.mesh,
+        [Shard(0)],
+        run_check=False,
+        shape=global_shape,
+        stride=_contiguous_stride(global_shape),
     )
 
 
@@ -127,9 +154,7 @@ def owner_reduce_scatter(
     if ownership.world_size == 1:
         reduced = padded[:shard_count]
     else:
-        reduced = observation_contributions.new_empty(
-            (shard_count, *feature_shape)
-        )
+        reduced = observation_contributions.new_empty((shard_count, *feature_shape))
         dist.reduce_scatter_tensor(
             reduced,
             padded.contiguous(),

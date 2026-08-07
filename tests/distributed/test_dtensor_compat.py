@@ -13,7 +13,7 @@ from torch import nn
 from torch.distributed.tensor import DTensor, DeviceMesh, Shard, distribute_tensor
 
 from bae.autograd.graph import jacobian_components
-from bae.distributed.context import DistributedTraceContext
+from bae.distributed.context import DistributedIndexContext
 
 
 @psjac
@@ -94,9 +94,9 @@ def _spike_worker(
             )
             return residual, components
 
-        with DistributedTraceContext(
+        with DistributedIndexContext(
             (model.cameras, model.points)
-        ) as trace_context:
+        ) as index_context:
             compiled = torch.compile(
                 residual_and_components,
                 backend=compile_backend,
@@ -130,7 +130,7 @@ def _spike_worker(
             - observations
         )
         torch.testing.assert_close(residual, expected)
-        assert trace_context.mode.seen_distributed_index
+        assert index_context.mode.seen_distributed_index
 
         camera_component = components[0][0]
         point_component = components[1][0]

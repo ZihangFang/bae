@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from contextvars import ContextVar
 from dataclasses import dataclass
 from itertools import count
-from typing import Optional
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
@@ -46,9 +44,6 @@ _NEXT_PARAMETER_KEY = count(1)
 _PARAMETERS_BY_ID: dict[int, DistributedParameterMetadata] = {}
 _PARAMETERS_BY_KEY: dict[int, DistributedParameterMetadata] = {}
 _PENDING_FINGERPRINTS: dict[tuple, dict[str, object]] = {}
-_ACTIVE_CONTEXT: ContextVar[Optional["DistributedTraceContext"]] = ContextVar(
-    "bae_distributed_trace_context", default=None
-)
 
 
 def _local_storage_identity(tensor: DTensor) -> tuple:
@@ -153,7 +148,7 @@ def parameter_metadata(parameter: DTensor) -> DistributedParameterMetadata:
     raise RuntimeError(
         "DTensor is not registered as a distributed sparse-Jacobian parameter. "
         "Construct it with pp.Parameter(..., sjac=True) and enter "
-        "DistributedTraceContext."
+        "DistributedIndexContext."
     )
 
 
@@ -164,8 +159,8 @@ def parameter_metadata_by_key(key: int) -> DistributedParameterMetadata:
         raise RuntimeError(f"Unknown distributed parameter key {key}") from error
 
 
-class DistributedTraceContext:
-    """Registers DTensor leaves and owns their compile-time dispatch mode."""
+class DistributedIndexContext:
+    """Owner-route DTensor indexing and record sparse-Jacobian provenance."""
 
     def __init__(self, parameters=()):
         self.parameters = tuple(parameters)
@@ -174,8 +169,7 @@ class DistributedTraceContext:
             for parameter in self.parameters
             if isinstance(parameter, DTensor)
         )
-        self.mode = DistributedTraceMode(self)
-        self._token = None
+        self.mode = DistributedIndexMode(self)
 
     def contains(self, tensor: object) -> bool:
         entry = _PARAMETERS_BY_ID.get(id(tensor))
@@ -186,65 +180,59 @@ class DistributedTraceContext:
         )
 
     def __enter__(self):
-        self._token = _ACTIVE_CONTEXT.set(self)
         self.mode.__enter__()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        try:
-            return self.mode.__exit__(exc_type, exc_value, traceback)
-        finally:
-            if self._token is not None:
-                _ACTIVE_CONTEXT.reset(self._token)
-                self._token = None
+        return self.mode.__exit__(exc_type, exc_value, traceback)
 
 
-class DistributedTraceMode(TorchDispatchMode):
-    """Replaces global indexing and records structure during Dynamo capture."""
+class DistributedIndexMode(TorchDispatchMode):
+    """Dispatch distributed indexing while propagating sparse trace metadata."""
 
-    def __init__(self, context: DistributedTraceContext):
+    def __init__(self, context: DistributedIndexContext):
         super().__init__()
         self.context = context
         self.seen_distributed_index = False
 
-    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
-        kwargs = kwargs or {}
-        if (
+    def _distributed_index(self, func, args):
+        if not (
             func is torch.ops.aten.index.Tensor
             and args
             and isinstance(args[0], DTensor)
             and self.context.contains(args[0])
         ):
-            parameter, tensor_indices = args[:2]
-            if (
-                len(tensor_indices) != 1
-                or not isinstance(tensor_indices[0], torch.Tensor)
-            ):
-                raise NotImplementedError(
-                    "Distributed sparse-Jacobian parameters support tensor indexing "
-                    "on dimension 0 only."
-                )
-            from .ops import distributed_index
+            return None
 
-            index = tensor_indices[0]
-            result = distributed_index(parameter, index)
+        parameter, tensor_indices = args[:2]
+        if len(tensor_indices) != 1 or not isinstance(tensor_indices[0], torch.Tensor):
+            raise NotImplementedError(
+                "Distributed sparse-Jacobian parameters support tensor indexing "
+                "on dimension 0 only."
+            )
+        from .ops import distributed_index
+
+        index = tensor_indices[0]
+        return (
+            distributed_index(parameter, index),
+            index,
+            parameter,
+        )
+
+    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+        kwargs = kwargs or {}
+        indexed = self._distributed_index(func, args)
+        if indexed is not None:
+            result, index, parameter = indexed
             _set_compile_trace(result, ("index", index, parameter))
             self.seen_distributed_index = True
             return result
 
         result = func(*args, **kwargs)
-        if (
-            func is torch.ops.aten.index.Tensor
-            and args
-            and _has_compile_trace(args[0])
-        ):
+        if func is torch.ops.aten.index.Tensor and args and _has_compile_trace(args[0]):
             tensor_indices = args[1]
-            if len(tensor_indices) == 1 and isinstance(
-                tensor_indices[0], torch.Tensor
-            ):
-                _set_compile_trace(
-                    result, ("index", tensor_indices[0], args[0])
-                )
+            if len(tensor_indices) == 1 and isinstance(tensor_indices[0], torch.Tensor):
+                _set_compile_trace(result, ("index", tensor_indices[0], args[0]))
             return result
 
         map_functions = {
@@ -253,10 +241,7 @@ class DistributedTraceMode(TorchDispatchMode):
             torch.ops.aten.mul.Tensor,
             torch.ops.aten.div.Tensor,
         }
-        if func in map_functions and any(
-            _has_compile_trace(arg)
-            for arg in args
-        ):
+        if func in map_functions and any(_has_compile_trace(arg) for arg in args):
             from ..autograd.function import _compact_map_arg
 
             compact_args = tuple(_compact_map_arg(arg) for arg in args)
@@ -276,14 +261,9 @@ class DistributedTraceMode(TorchDispatchMode):
                 for tensor in tensors:
                     end = offset + tensor.shape[0]
                     if _has_compile_trace(tensor) or (
-                        isinstance(tensor, DTensor)
-                        and is_registered_parameter(tensor)
+                        isinstance(tensor, DTensor) and is_registered_parameter(tensor)
                     ):
                         tracked.append((offset, end, tensor))
                     offset = end
                 _set_compile_trace(result, ("cat", 0, tuple(tracked)))
         return result
-
-
-def active_trace_context() -> Optional[DistributedTraceContext]:
-    return _ACTIVE_CONTEXT.get()

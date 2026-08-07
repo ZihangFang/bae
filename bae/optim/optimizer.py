@@ -356,7 +356,7 @@ class Schur(LM):
         return params
 
     def _distributed_evaluate(self, local_input, local_target, params):
-        from ..distributed.context import DistributedTraceContext
+        from ..distributed.context import DistributedIndexContext
 
         if not hasattr(self, "_compiled_distributed_residual"):
             def residual_and_components(local_input, local_target):
@@ -372,14 +372,14 @@ class Schur(LM):
                 fullgraph=True,
             )
 
-        with DistributedTraceContext(params):
+        with DistributedIndexContext(params):
             return self._compiled_distributed_residual(
                 local_input, local_target
             )
 
     def _distributed_evaluate_residual(self, local_input, local_target, params):
         """Re-evaluate only the residual for trust-region acceptance."""
-        from ..distributed.context import DistributedTraceContext
+        from ..distributed.context import DistributedIndexContext
 
         if not hasattr(self, "_compiled_distributed_residual_only"):
             def residual_only(local_input, local_target):
@@ -393,7 +393,7 @@ class Schur(LM):
                 fullgraph=True,
             )
 
-        with DistributedTraceContext(params):
+        with DistributedIndexContext(params):
             return self._compiled_distributed_residual_only(
                 local_input, local_target
             )
