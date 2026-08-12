@@ -84,7 +84,7 @@
 ### Future Plan
 - [x] Reduce runtime overhead using CUDA graph; compile fwd & backward with `torch.compile()` reducing latency from 10ms to 2.2ms (added in [PR #41](https://github.com/pypose/bae/pull/41))
 - [ ] Reduce kernel launching cost in PCG solver by kernel fusion
-- [ ] Distributed Tensor (DTensor) and FSDP support for multi-GPU and distributed optimization (WIP in `distributed_proto`)
+- [ ] Distributed Tensor (DTensor) and FSDP support for multi-GPU and distributed optimization (WIP in `distributed_dt`)
 - [x] Schur complement (added in [PR #35](https://github.com/pypose/bae/pull/35))
 - [ ] Add Apple Silicon GPU support, [PyTorch PR WIP](https://github.com/pytorch/pytorch/pull/177757)
 - [ ] **Community-requested features:** Need support for a new framework, hardware backend, or more efficient memory allocation? Open an issue and tell us about your use case; we’d love to hear what you need.
